@@ -216,3 +216,8 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+opencode
+opencode.json
+.opencode
+.opencode.json
