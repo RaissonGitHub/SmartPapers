@@ -33,13 +33,25 @@ class AgentChatView(APIView):
         provider_name = request.data.get("provider", "").lower()
         requisicao = request.data.get("requisicao", "").lower()
         sessao_id = request.data.get("sessao_id")
-        ano_inicio = request.data.get("ano_inicio") or 0
-        ano_fim = request.data.get("ano_fim") or 0
         area = request.data.get("area", "") or ""
+        pdf = request.data.get("pdf")
+
+        try:
+            ano_inicio = int(request.data.get("ano_inicio") or 0)
+            ano_fim = int(request.data.get("ano_fim") or 0)
+        except (TypeError, ValueError):
+            ano_inicio = 0
+            ano_fim = 0
 
         if not mensagem:
             return Response(
                 {"erro": "O campo 'mensagem' é obrigatório."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if pdf and not getattr(pdf, "name", "").lower().endswith(".pdf"):
+            return Response(
+                {"erro": "O anexo enviado deve ser um arquivo PDF."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -59,6 +71,7 @@ class AgentChatView(APIView):
             ano_inicio=ano_inicio,
             ano_fim=ano_fim,
             area=area,
+            pdf=pdf,
         )
 
         return Response(resultado, status=status.HTTP_200_OK)

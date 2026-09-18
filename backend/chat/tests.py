@@ -1,6 +1,7 @@
 from unittest.mock import patch
 
 from django.contrib.auth.models import User
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase
 from rest_framework.test import APIClient
 
@@ -238,6 +239,99 @@ class AgentePersistenciaTestCase(TestCase):
         anonimo = APIClient()
         resposta = anonimo.post("/chat/agente/", {"mensagem": "oi"}, format="json")
         self.assertIn(resposta.status_code, (401, 403))
+
+
+class AgentePdfTestCase(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.usuario = User.objects.create_user(
+            username="pdf", password="senha123"
+        )
+        self.client.force_authenticate(user=self.usuario)
+        self.arquivo = SimpleUploadedFile(
+            "artigo.pdf", b"%PDF-1.4 dados-falsos", content_type="application/pdf"
+        )
+
+    def _mensagem_modelo_padrao(self, resposta="ok"):
+        return {
+            "resposta": resposta,
+            "ferramenta_utilizada": False,
+            "artigos": [],
+        }
+
+    @patch("chat.services.conversa_service.processar_mensagem_usuario")
+    @patch("chat.services.conversa_service.processar_pdf")
+    def test_pdf_persiste_nome_e_secoes(self, mock_pdf, mock_rag):
+        secoes = [
+            {"indice": 1, "resumo": "Metodologia", "texto": "Texto da seção."}
+        ]
+        mock_pdf.return_value = secoes
+        mock_rag.return_value = self._mensagem_modelo_padrao()
+
+        resposta = self.client.post(
+            "/chat/agente/",
+            {"mensagem": "use este pdf como base", "pdf": self.arquivo},
+            format="multipart",
+        )
+        self.assertEqual(resposta.status_code, 200)
+
+        sessao = Sessao.objects.get(sessao_id=resposta.data["sessao_id"])
+        self.assertEqual(sessao.pdf_nome, "artigo.pdf")
+        self.assertEqual(sessao.pdf_secoes, secoes)
+
+        mensagem_usuario = sessao.mensagens.get(papel="USUARIO")
+        self.assertEqual(mensagem_usuario.pdf_nome, "artigo.pdf")
+
+        self.assertEqual(mock_pdf.call_args.args[1], ["use este pdf como base"])
+        self.assertEqual(mock_rag.call_args.kwargs["pdf_secoes"], secoes)
+
+    @patch("chat.services.conversa_service.processar_mensagem_usuario")
+    def test_pdf_rejeita_arquivo_nao_pdf(self, mock_rag):
+        mock_rag.return_value = self._mensagem_modelo_padrao()
+        arquivo_txt = SimpleUploadedFile(
+            "nota.txt", b"texto", content_type="text/plain"
+        )
+        resposta = self.client.post(
+            "/chat/agente/",
+            {"mensagem": "use o anexo", "pdf": arquivo_txt},
+            format="multipart",
+        )
+        self.assertEqual(resposta.status_code, 400)
+        self.assertEqual(Sessao.objects.count(), 0)
+
+    @patch("chat.services.conversa_service.processar_mensagem_usuario")
+    def test_pdf_depende_de_mensagem(self, mock_rag):
+        mock_rag.return_value = self._mensagem_modelo_padrao()
+        resposta = self.client.post(
+            "/chat/agente/",
+            {"pdf": self.arquivo},
+            format="multipart",
+        )
+        self.assertEqual(resposta.status_code, 400)
+
+    @patch("chat.services.conversa_service.processar_mensagem_usuario")
+    def test_secoes_persistidas_usadas_sem_novo_pdf(self, mock_rag):
+        sessao = Sessao.objects.create(
+            sessao_id="abc-pdf",
+            titulo="Com pdf",
+            usuario=self.usuario,
+            pdf_nome="anexo.pdf",
+            pdf_secoes=[{"indice": 1, "resumo": "Resumo", "texto": "Texto"}],
+        )
+        Mensagem.objects.create(sessao=sessao, papel="USUARIO", conteudo="oi")
+        Mensagem.objects.create(sessao=sessao, papel="MODELO", conteudo="x")
+        mock_rag.return_value = self._mensagem_modelo_padrao()
+
+        resposta = self.client.post(
+            "/chat/agente/",
+            {"mensagem": "continue", "sessao_id": "abc-pdf"},
+            format="json",
+        )
+        self.assertEqual(resposta.status_code, 200)
+        self.assertEqual(
+            mock_rag.call_args.kwargs["pdf_secoes"],
+            [{"indice": 1, "resumo": "Resumo", "texto": "Texto"}],
+        )
 
 
 class AutenticacaoTestCase(TestCase):

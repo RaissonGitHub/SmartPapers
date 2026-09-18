@@ -63,6 +63,13 @@ export default function ChatArea({ className = "", mensagens, carregando }) {
                 <span className="whitespace-pre-line">{m.conteudo}</span>
               )}
 
+              {m.papel === "user" && m.pdf_nome && (
+                <div className="mt-2.5 flex max-w-full items-center gap-2 rounded-lg border border-[#b6cde6] bg-white/60 px-3 py-2 text-xs font-medium text-[#1e3a5f]">
+                  <span className="shrink-0">📄</span>
+                  <span className="truncate">{m.pdf_nome}</span>
+                </div>
+              )}
+
               {m.papel === "model" && m.artigos?.length > 0 && (
                 <div className="mt-3.5 flex max-w-full flex-col gap-3">
                   {m.artigos.map((a, j) => (

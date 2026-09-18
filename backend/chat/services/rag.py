@@ -1,4 +1,5 @@
 import json
+import os
 import re
 from concurrent.futures import ThreadPoolExecutor
 
@@ -11,6 +12,8 @@ from .refinamento import (
     reformular_busca,
     rerank_por_aderencia,
 )
+
+PDF_SECOES_BUSCA_MAX = int(os.getenv("PDF_SECOES_BUSCA_MAX", "4"))
 
 SYSTEM_PROMPT = (
     "Você é um assistente acadêmico e científico.\n"
@@ -62,6 +65,34 @@ def _mensagens_artigos_contexto(artigos_contexto) -> list[dict]:
     ]
 
 
+def _secoes_pdf_prompt(pdf_secoes) -> str:
+    """Formata as seções relevantes do PDF para o contexto do modelo."""
+    if not pdf_secoes:
+        return ""
+    blocos = []
+    for indice, secao in enumerate(pdf_secoes, start=1):
+        resumo = (secao.get("resumo") or "").strip()
+        texto = (secao.get("texto") or "").strip()
+        blocos.append(f"[Seção {indice}] {resumo}\n{texto}")
+    return "\n\n".join(blocos)
+
+
+def _mensagens_pdf_contexto(pdf_secoes) -> list[dict]:
+    """Constrói mensagem de sistema com o conteúdo relevante do PDF anexado."""
+    prompt = _secoes_pdf_prompt(pdf_secoes)
+    if not prompt:
+        return []
+    return [
+        {
+            "role": "system",
+            "content": (
+                "O usuário anexou um documento PDF a esta conversa. Estas são as "
+                f"seções relevantes extraídas desse documento:\n\n{prompt}"
+            ),
+        }
+    ]
+
+
 def _requer_busca(mensagem: str, provedor: LLMProvider | None = None) -> bool:
     """Pergunta ao LLM se a mensagem exige busca de artigos."""
     p = provedor or provedor_padrao
@@ -90,8 +121,9 @@ def _buscar_dupla_artigos(
     ano_fim: int = 0,
     area: str = "",
     provedor: LLMProvider | None = None,
+    consultas_pdf: list[str] | None = None,
 ) -> list[dict]:
-    """Busca em duas versões da consulta e reranke os resultados."""
+    """Busca nas consultas geradas + seções do PDF e reranke os resultados."""
     candidatos_por_lote = max(top_n * 3, 30)
     pool_rerank = max(top_n + 5, 15)
     p = provedor or provedor_padrao
@@ -99,22 +131,32 @@ def _buscar_dupla_artigos(
     texto_reformulado = reformular_busca(texto_original_usuario, provedor=p)
     print(f"[RAG] Texto reformulado para busca: {texto_reformulado}")
 
+    consultas_pdf = [
+        c for c in (consultas_pdf or []) if c and c.strip()
+    ][:PDF_SECOES_BUSCA_MAX]
+    if consultas_pdf:
+        print(f"[RAG] Usando {len(consultas_pdf)} seções do PDF como consultas.")
+
     def executar_busca(texto: str):
-        print(f"[RAG] Executando busca vetorial para: {texto}")
-        return buscar_artigos(
-            embedding=gerar_embedding(titulo=texto),
-            top_n=candidatos_por_lote,
-            ano_inicio=ano_inicio,
-            ano_fim=ano_fim,
-            area=area,
-        )
+        try:
+            print(f"[RAG] Executando busca vetorial para: {texto}")
+            return buscar_artigos(
+                embedding=gerar_embedding(titulo=texto),
+                top_n=candidatos_por_lote,
+                ano_inicio=ano_inicio,
+                ano_fim=ano_fim,
+                area=area,
+            )
+        except Exception as exc:
+            print(f"[RAG] Falha na busca para '{texto[:80]}': {exc}")
+            return []
 
-    with ThreadPoolExecutor(max_workers=2) as executor:
-        res_ingles = executor.submit(executar_busca, search_title_en).result()
-        res_cru = executor.submit(executar_busca, texto_reformulado).result()
+    consultas = [search_title_en, texto_reformulado] + consultas_pdf
+    with ThreadPoolExecutor(max_workers=min(4, len(consultas))) as executor:
+        resultados = list(executor.map(executar_busca, consultas))
 
-    print(f"[RAG] Resultados brutos: {len(res_ingles)} em inglês + {len(res_cru)} reformulados")
-    pool = _mesclar_artigos_por_id(res_ingles, res_cru)[:pool_rerank]
+    print(f"[RAG] Resultados brutos: {len(resultados)} execuções de busca")
+    pool = _mesclar_artigos_por_id(*resultados)[:pool_rerank]
     print(f"[RAG] Pool para rerank: {len(pool)} artigos")
     artigos_final = rerank_por_aderencia(texto_original_usuario, pool, top_n, provedor=p)
     print(f"[RAG] Artigos finais retornados: {len(artigos_final)}")
@@ -180,10 +222,12 @@ def _resposta_direta(
     provedor: LLMProvider | None = None,
     historico: list[dict] | None = None,
     artigos_contexto: list[dict] | None = None,
+    pdf_secoes: list[dict] | None = None,
 ) -> dict:
     """Resposta conceitual geral: sem busca no banco."""
     p = provedor or provedor_padrao
     messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+    messages.extend(_mensagens_pdf_contexto(pdf_secoes))
     messages.extend(_mensagens_artigos_contexto(artigos_contexto))
     if historico:
         messages.extend(historico)
@@ -198,11 +242,13 @@ def processar_mensagem_usuario(
     provedor: LLMProvider | None = None,
     historico: list[dict] | None = None,
     artigos_contexto: list[dict] | None = None,
+    pdf_secoes: list[dict] | None = None,
     ano_inicio: int = 0,
     ano_fim: int = 0,
     area: str = "",
 ) -> dict:
     p = provedor or provedor_padrao
+    pdf_secoes = pdf_secoes or []
     print(f"[RAG] Iniciando processamento da mensagem: {mensagem[:120]}...")
 
     def pesquisar_base_artigos(
@@ -221,6 +267,7 @@ def processar_mensagem_usuario(
             ano_fim=ano_fim,
             area=area,
             provedor=p,
+            consultas_pdf=[s.get("resumo") for s in pdf_secoes],
         )
 
     # Override explícito da intenção: sem o campo, o modelo decide.
@@ -236,10 +283,15 @@ def processar_mensagem_usuario(
     if not requer_busca:
         print("[RAG] Mensagem resolvida sem busca no banco.")
         return _resposta_direta(
-            mensagem, provedor=p, historico=historico, artigos_contexto=artigos_contexto
+            mensagem,
+            provedor=p,
+            historico=historico,
+            artigos_contexto=artigos_contexto,
+            pdf_secoes=pdf_secoes,
         )
 
     messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+    messages.extend(_mensagens_pdf_contexto(pdf_secoes))
     messages.extend(_mensagens_artigos_contexto(artigos_contexto))
     if historico:
         messages.extend(historico)

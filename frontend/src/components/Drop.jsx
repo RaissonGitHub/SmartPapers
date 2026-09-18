@@ -1,38 +1,13 @@
-import { useState } from "react";
 import { useDropzone } from "react-dropzone";
 
-export default function Drop({ className }) {
-  const [selectedFile, setSelectedFile] = useState(null);
-  const { getRootProps, getInputProps, inputRef } = useDropzone({
+export default function Drop({ className, onArquivo }) {
+  const { getRootProps, getInputProps } = useDropzone({
     multiple: false,
     accept: { "application/pdf": [".pdf"] },
     onDrop: (files) => {
-      setSelectedFile(files[0] ?? null);
+      onArquivo?.(files[0] ?? null);
     },
   });
-
-  const removeFile = () => {
-    setSelectedFile(null);
-    if (inputRef.current) inputRef.current.value = "";
-  };
-
-  const files = selectedFile ? (
-    <li className="flex w-full items-center justify-between gap-3 rounded-lg bg-borda px-5 py-2">
-      <span className="truncate">
-        {selectedFile.name.length >= 50
-          ? selectedFile.name.slice(0, 50) + "..."
-          : selectedFile.name}
-      </span>
-      <button
-        type="button"
-        onClick={removeFile}
-        aria-label={`Remover ${selectedFile.name}`}
-        className="shrink-0 px-1 text-xl leading-none text-gray-300 transition-colors hover:cursor-pointer hover:text-red-400"
-      >
-        ⨯
-      </button>
-    </li>
-  ) : null;
 
   return (
     <section
@@ -60,10 +35,6 @@ export default function Drop({ className }) {
         <p className="mt-3 text-center text-sm text-gray-500">
           Ou digite sua busca diretamente abaixo
         </p>
-
-        <aside className="mt-3 w-full">
-          <ul className="w-full">{files}</ul>
-        </aside>
       </div>
     </section>
   );

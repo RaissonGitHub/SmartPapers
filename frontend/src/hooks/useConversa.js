@@ -22,6 +22,7 @@ const mapearMensagens = (mensagens) =>
     papel: m.papel === "MODELO" ? "model" : "user",
     conteudo: m.conteudo,
     artigos: m.artigos ?? [],
+    pdf_nome: m.pdf_nome ?? "",
   }));
 
 export default function useConversa() {
@@ -131,12 +132,15 @@ export default function useConversa() {
   );
 
   const enviar = useCallback(
-    async (texto) => {
+    async (texto, arquivo = null) => {
       const conteudo = texto.trim();
       if (!conteudo || carregando) return;
       setErro("");
       setCarregando(true);
-      setMensagens((prev) => [...prev, { papel: "user", conteudo }]);
+      setMensagens((prev) => [
+        ...prev,
+        { papel: "user", conteudo, pdf_nome: arquivo?.name || "" },
+      ]);
       try {
         const resultado = await enviarMensagem({
           mensagem: conteudo,
@@ -144,6 +148,7 @@ export default function useConversa() {
           ano_inicio: filtros.anoInicio || 0,
           ano_fim: filtros.anoFim || 0,
           area: filtros.area || "",
+          pdf: arquivo || null,
         });
         setSessaoAtiva((prev) => resultado.sessao ?? prev);
         setSessaoId((prev) => resultado.sessao_id ?? prev);

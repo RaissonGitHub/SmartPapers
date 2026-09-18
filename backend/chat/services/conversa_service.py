@@ -5,6 +5,7 @@ import uuid
 from chat.enumerations import Papel
 from chat.models import Mensagem, Sessao
 
+from .pdf_service import processar_pdf
 from .rag import processar_mensagem_usuario
 
 
@@ -46,6 +47,7 @@ def salvar_mensagem(
     conteudo: str,
     artigos=None,
     ferramenta_utilizada: bool = False,
+    pdf_nome: str = "",
 ) -> Mensagem:
     return Mensagem.objects.create(
         sessao=sessao,
@@ -53,6 +55,7 @@ def salvar_mensagem(
         conteudo=conteudo,
         artigos=artigos or [],
         ferramenta_utilizada=ferramenta_utilizada,
+        pdf_nome=(pdf_nome or "")[:500],
     )
 
 
@@ -75,6 +78,7 @@ def processar_e_salvar(
     ano_inicio: int = 0,
     ano_fim: int = 0,
     area: str = "",
+    pdf=None,
 ) -> dict:
     """Executa a conversa e persiste usuário + modelo na sessão."""
     sessao = obter_ou_criar_sessao(sessao_key, usuario)
@@ -83,9 +87,18 @@ def processar_e_salvar(
         sessao.titulo = mensagem[:500]
         sessao.save(update_fields=["titulo"])
 
+    pdf_nome = (getattr(pdf, "name", "") or "")[:500] if pdf else ""
+    if pdf:
+        secoes_pdf = processar_pdf(pdf, [mensagem], provider)
+        sessao.pdf_nome = pdf_nome
+        sessao.pdf_secoes = secoes_pdf
+        sessao.save(update_fields=["pdf_nome", "pdf_secoes"])
+    else:
+        secoes_pdf = sessao.pdf_secoes or []
+
     historico = historico_sessao(sessao)
 
-    salvar_mensagem(sessao, Papel.USUARIO, mensagem)
+    salvar_mensagem(sessao, Papel.USUARIO, mensagem, pdf_nome=pdf_nome)
 
     resultado = processar_mensagem_usuario(
         mensagem=mensagem,
@@ -93,6 +106,7 @@ def processar_e_salvar(
         provedor=provider,
         historico=historico,
         artigos_contexto=sessao.artigos_contexto,
+        pdf_secoes=secoes_pdf,
         ano_inicio=ano_inicio,
         ano_fim=ano_fim,
         area=area,

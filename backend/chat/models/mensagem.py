@@ -16,6 +16,7 @@ class Mensagem(Base):
     conteudo = models.TextField()
     artigos = models.JSONField(default=list, blank=True)
     ferramenta_utilizada = models.BooleanField(default=False)
+    pdf_nome = models.CharField(max_length=500, blank=True, default="")
     criada_em = models.DateTimeField(auto_now_add=True)
 
     class Meta:

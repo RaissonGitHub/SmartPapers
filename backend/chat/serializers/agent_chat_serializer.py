@@ -40,3 +40,8 @@ class AgentChatRequestSerializer(serializers.Serializer):
         allow_blank=True,
         help_text="Filtro: área do conhecimento dos artigos (vazio = todas).",
     )
+    pdf = serializers.FileField(
+        required=False,
+        allow_null=True,
+        help_text="Arquivo PDF anexado (opcional). Sem mensagem, o envio é rejeitado.",
+    )

@@ -40,6 +40,8 @@ class SessaoDetailSerializer(serializers.ModelSerializer):
             "titulo",
             "criada_em",
             "artigos_contexto",
+            "pdf_nome",
+            "pdf_secoes",
             "mensagens",
         )
         read_only_fields = (
@@ -48,5 +50,7 @@ class SessaoDetailSerializer(serializers.ModelSerializer):
             "usuario",
             "criada_em",
             "artigos_contexto",
+            "pdf_nome",
+            "pdf_secoes",
             "mensagens",
         )

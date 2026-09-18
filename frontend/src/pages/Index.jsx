@@ -1,9 +1,11 @@
+import { useState } from "react";
 import ChatArea from "../components/ChatArea";
 import Drop from "../components/Drop";
 import InputChat from "../components/InputChat";
 import Nav from "../components/Nav";
 import Sidebar from "../components/Sidebar";
 import useConversa from "../hooks/useConversa";
+
 export default function Index({ usuario, onSair }) {
   const {
     mensagens,
@@ -23,6 +25,7 @@ export default function Index({ usuario, onSair }) {
     filtros,
     definirFiltro,
   } = useConversa();
+  const [arquivo, setArquivo] = useState(null);
   return (
     <>
       <div className="flex h-screen flex-col overflow-hidden">
@@ -45,7 +48,7 @@ export default function Index({ usuario, onSair }) {
           />
           <div className="col-span-6 flex h-full min-h-0 flex-col overflow-hidden bg-fundo ">
             {mensagens.length === 0 ? (
-              <Drop className="w-full flex-1" />
+              <Drop className="w-full flex-1" onArquivo={setArquivo} />
             ) : (
               <ChatArea
                 className="min-h-0 w-full flex-1"
@@ -58,7 +61,13 @@ export default function Index({ usuario, onSair }) {
                 {erro}
               </div>
             )}
-            <InputChat className="w-full" onEnviar={enviar} carregando={carregando} />
+            <InputChat
+              className="w-full"
+              onEnviar={enviar}
+              carregando={carregando}
+              arquivo={arquivo}
+              onArquivoChange={setArquivo}
+            />
           </div>
         </div>
       </div>
