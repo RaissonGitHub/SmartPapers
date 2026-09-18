@@ -27,57 +27,22 @@ EMBED_BATCH = 32  # artigos por lote de embedding (limitado pela RAM)
 
 def carregar_modelo():
     """
-    Carrega o allenai/specter2_base e aplica o adapter de proximidade.
-    O specter2 é distribuído como adapter sobre o modelo base,
-    por isso requer a biblioteca `adapters` além do sentence-transformers.
+    Wrapper do método oficial de embedding do SPECTER2 (adapter `proximity`,
+    embedding CLS, com `[SEP]`, sem token_type_ids) — o MESMO usado pelas
+    queries em runtime (`gerar_embedding_service`).
+
+    Mantém a interface `.encode(textos, ...)` usada pelo fluxo de coleta.
     """
-    import torch
-    from adapters import AutoAdapterModel
-    from transformers import AutoTokenizer
-
-    print("⏳ Carregando modelo allenai/specter2_base + adapter...")
-
-    tokenizer = AutoTokenizer.from_pretrained("allenai/specter2_base")
-    model = AutoAdapterModel.from_pretrained("allenai/specter2_base")
-
-    # Adapter de proximidade (document similarity) — o mais adequado para busca vetorial
-    model.load_adapter(
-        "allenai/specter2", source="hf", load_as="specter2", set_active=True
+    from ...services.gerar_embedding_service import (
+        _texto_embedding,
+        gerar_embedding_lote,
     )
-    model.eval()
 
-    print("✅ Modelo carregado.")
-
-    # Retorna um wrapper simples compatível com o restante do script
     class Specter2Wrapper:
-        def __init__(self, mdl, tok):
-            self.model = mdl
-            self.tokenizer = tok
-
         def encode(self, textos, show_progress_bar=False, batch_size=32):
-            import numpy as np
+            return gerar_embedding_lote(list(textos))
 
-            todos = []
-            for i in range(0, len(textos), batch_size):
-                lote = textos[i : i + batch_size]
-                inputs = self.tokenizer(
-                    lote,
-                    padding=True,
-                    truncation=True,
-                    max_length=512,
-                    return_tensors="pt",
-                )
-                with torch.no_grad():
-                    outputs = self.model(**inputs)
-                # Mean pooling sobre os tokens
-                atenção = inputs["attention_mask"].unsqueeze(-1).float()
-                embeddings = (outputs.last_hidden_state * atenção).sum(1) / atenção.sum(
-                    1
-                )
-                todos.append(embeddings.cpu().numpy())
-            return np.vstack(todos)
-
-    return Specter2Wrapper(model, tokenizer)
+    return Specter2Wrapper()
 
 
 def buscar_pagina(query, filtros, cursor, api_key, por_pagina):
@@ -179,7 +144,9 @@ def salvar_artigo(work):
 
 def gerar_embeddings(modelo, artigos):
     """Gera e salva embeddings para uma lista de artigos."""
-    textos = [f"{a.titulo} {a.resumo}" for a in artigos]
+    from ...services.gerar_embedding_service import _texto_embedding
+
+    textos = [_texto_embedding(a.titulo, a.resumo) for a in artigos]
     vetores = modelo.encode(textos, show_progress_bar=False, batch_size=EMBED_BATCH)
     for artigo, vetor in zip(artigos, vetores):
         artigo.embedding = vetor.tolist()

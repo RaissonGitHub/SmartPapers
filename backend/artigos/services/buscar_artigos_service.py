@@ -1,0 +1,90 @@
+import os
+
+from pgvector.django import CosineDistance
+
+from ..models.artigo import Artigo
+
+SIMILARIDADE_MIN = float(os.getenv("SIMILARIDADE_MIN", "0"))
+
+
+def _normalizar_area_filtro(area: str) -> str | None:
+    """
+    Valida o filtro de área contra os valores reais existentes na base.
+
+    O LLM às vezes devolve "áreas" que não existem na base (ex.: 'Biomedicine',
+    quando a base tem 'Medicine'). Aplicar esse filtro literal zeraria a busca.
+    Aqui a área só é mantida se houver correspondência parcial com um valor real.
+    """
+    if not area or not area.strip():
+        return None
+    candidata = area.strip().lower()
+    areas_existentes = (
+        Artigo.objects.exclude(area_conhecimento="")
+        .values_list("area_conhecimento", flat=True)
+        .distinct()
+    )
+    for existente in areas_existentes:
+        ex = existente.lower()
+        if candidata in ex or ex in candidata:
+            return existente
+    return None
+
+
+def buscar_artigos(
+    embedding: list[float],
+    top_n: int = 10,
+    ano_inicio: int = 0,
+    ano_fim: int = 0,
+    area: str = "",
+) -> list[dict]:
+    """
+    Executa busca ANN por similaridade de cosseno no pgvector.
+
+    Parâmetros:
+        embedding   : vetor da consulta (768 dimensões)
+        top_n       : número de resultados a retornar
+        ano_inicio  : filtro de ano mínimo (opcional)
+        ano_fim     : filtro de ano máximo (opcional)
+        area        : filtro de área do conhecimento (opcional)
+
+    Retorna lista de dicts com metadados dos artigos ordenados por similaridade.
+    """
+    qs = Artigo.objects.exclude(embedding=None)
+
+    if ano_inicio:
+        qs = qs.filter(ano_publicacao__gte=ano_inicio)
+    if ano_fim:
+        qs = qs.filter(ano_publicacao__lte=ano_fim)
+    if area:
+        area = _normalizar_area_filtro(area)
+    if area:
+        qs = qs.filter(area_conhecimento__icontains=area)
+
+    resultados = (
+        qs.annotate(distancia=CosineDistance("embedding", embedding))
+        .filter(distancia__isnull=False)
+        .order_by("distancia")
+        .prefetch_related("autores")[:top_n]
+    )
+
+    artigos = []
+    for artigo in resultados:
+        similaridade = round((1 - float(artigo.distancia)) * 100, 1)
+        if similaridade < SIMILARIDADE_MIN:
+            continue
+        autores = [a.nome for a in artigo.autores.all()]
+        artigos.append(
+            {
+                "id": artigo.id,
+                "openalex_id": artigo.openalex_id,
+                "titulo": artigo.titulo,
+                "resumo": artigo.resumo,
+                "autores": autores,
+                "ano_publicacao": artigo.ano_publicacao,
+                "area_conhecimento": artigo.area_conhecimento,
+                "link_original": artigo.link_original,
+                "similaridade": similaridade,
+            }
+        )
+
+    return artigos

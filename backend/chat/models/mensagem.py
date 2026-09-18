@@ -14,6 +14,8 @@ class Mensagem(Base):
     )
     papel = models.CharField(max_length=10, choices=Papel)
     conteudo = models.TextField()
+    artigos = models.JSONField(default=list, blank=True)
+    ferramenta_utilizada = models.BooleanField(default=False)
     criada_em = models.DateTimeField(auto_now_add=True)
 
     class Meta:

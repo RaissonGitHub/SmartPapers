@@ -1,9 +1,11 @@
 import { DatePicker } from "@mui/x-date-pickers/DatePicker";
 
-export default function Ano({ label, minDate, maxDate }) {
+export default function Ano({ label, minDate, maxDate, value, onChange }) {
   return (
     <DatePicker
       label={label}
+      value={value}
+      onChange={onChange}
       minDate={minDate}
       maxDate={maxDate}
       openTo="year"

@@ -1,8 +1,6 @@
 import Modal from "@mui/material/Modal";
 import { useState } from "react";
-import Box from "@mui/material/Box";
-import Button from "@mui/material/Button";
-import Typography from "@mui/material/Typography";
+import { autoresCompletos, autoresResumidos } from "../utils/autores";
 export default function ArtigoCard({
   titulo,
   resumo,
@@ -14,34 +12,44 @@ export default function ArtigoCard({
   const [open, setOpen] = useState(false);
   const handleOpen = () => setOpen(true);
   const handleClose = () => setOpen(false);
+  const autoresResumo = autoresResumidos(autores);
+  const autoresTodos = autoresCompletos(autores);
   return (
     <>
       <div
-        className="px-3 py-2 rounded hover:bg-[#302f2f] hover:cursor-pointer"
+        className="rounded px-3 py-2 hover:bg-[#302f2f] hover:cursor-pointer"
         onClick={() => handleOpen()}
       >
-        <p className="text-white text-xs">
-          "{titulo.slice(0, 62).trimEnd()}
-          {titulo.length > 62 ? "..." : null}"
-        </p>
-        <div className="flex text-gray-600 text-xs gap-2">
-          <span>
-            {autores} · {ano}
-          </span>
-          <span className="rounded-full bg-blue-500/15 px-2 text-xs text-blue-400">
-            {sim}% sim.
-          </span>
+        <div className="flex items-start justify-between gap-2.5">
+          <p className="line-clamp-2 text-[13px] font-semibold leading-[1.4] text-[#4f9cf9]">
+            {titulo}
+          </p>
+          {sim != null && (
+            <span className="mt-0.5 shrink-0 rounded-full bg-[#dce9fb] px-2 py-0.5 text-[11px] text-[#1e3a5f]">
+              {sim}% similaridade
+            </span>
+          )}
         </div>
+        <div className="mt-1 text-xs text-gray-600">
+          {autoresResumo}
+          {autoresResumo && " · "}
+          {ano || "S/D"}
+        </div>
+        {resumo && (
+          <div className="mt-1 line-clamp-2 text-xs leading-5 text-gray-500">
+            {resumo}
+          </div>
+        )}
       </div>
-      <Modal
-        open={open}
-        onClose={handleClose}
-        aria-labelledby="modal-modal-title"
-        aria-describedby="modal-modal-description"
-      >
-        <Box>
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-            <div className="relative max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-lg border border-borda bg-fundo p-6 text-gray-100 shadow-2xl">
+      <Modal open={open} onClose={handleClose}>
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+          onClick={handleClose}
+        >
+            <div
+              className="relative max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-lg border border-borda bg-fundo p-6 text-gray-100 shadow-2xl"
+              onClick={(e) => e.stopPropagation()}
+            >
               <button
                 className="absolute right-4 top-3 text-2xl leading-none text-gray-400 hover:text-white"
                 aria-label="Fechar modal"
@@ -54,12 +62,16 @@ export default function ArtigoCard({
 
               <div className="mt-3 flex flex-wrap items-center gap-2 text-sm text-gray-400">
                 <span>
-                  {autores} · {ano || "S/D"} ·{" "}
+                  {autoresTodos}
+                  {autoresTodos && " · "}
+                  {ano || "S/D"} ·{" "}
                 </span>
 
-                <span className="rounded-full bg-blue-500/15 px-2 py-1 text-xs text-blue-400">
-                  {sim}% similaridade
-                </span>
+                {sim != null && (
+                  <span className="rounded-full bg-blue-500/15 px-2 py-1 text-xs text-blue-400">
+                    {sim}% similaridade
+                  </span>
+                )}
               </div>
 
               <div className="mt-5 whitespace-pre-line text-sm leading-6 text-gray-300">
@@ -78,7 +90,6 @@ export default function ArtigoCard({
               )}
             </div>
           </div>
-        </Box>
       </Modal>
     </>
   );

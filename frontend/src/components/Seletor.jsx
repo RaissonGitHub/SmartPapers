@@ -1,13 +1,17 @@
-import * as React from "react";
 import InputLabel from "@mui/material/InputLabel";
 import MenuItem from "@mui/material/MenuItem";
 import FormControl from "@mui/material/FormControl";
 import Select from "@mui/material/Select";
-export default function Seletor({ valores }) {
-  const [age, setAge] = React.useState("");
 
+export default function Seletor({
+  valores = [],
+  valor = "",
+  onChange,
+  label = "Área",
+  carregando = false,
+}) {
   const handleChange = (event) => {
-    setAge(event.target.value);
+    onChange?.(event.target.value);
   };
 
   return (
@@ -38,19 +42,20 @@ export default function Seletor({ valores }) {
         },
       }}
     >
-      <InputLabel id="demo-select-small-label">Área</InputLabel>
+      <InputLabel id="seletor-area-label">{label}</InputLabel>
       <Select
-        labelId="demo-select-small-label"
-        id="demo-select-small"
-        value={age}
-        label="Área"
+        labelId="seletor-area-label"
+        id="seletor-area"
+        value={valor}
+        label={label}
         onChange={handleChange}
+        disabled={carregando}
       >
         <MenuItem value="">
           <em>Nenhum</em>
         </MenuItem>
-        {valores.map((v, i) => (
-          <MenuItem key={v} value={i}>
+        {valores.map((v) => (
+          <MenuItem key={v} value={v}>
             {v}
           </MenuItem>
         ))}
