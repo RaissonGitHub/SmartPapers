@@ -27,6 +27,7 @@ export default function Index({ usuario, onSair }) {
   } = useConversa();
   const [arquivo, setArquivo] = useState(null);
   const [sidebarAberta, setSidebarAberta] = useState(false);
+  const [sidebarRecolhida, setSidebarRecolhida] = useState(false);
   return (
     <>
       <div className="flex h-screen flex-col overflow-hidden">
@@ -36,7 +37,9 @@ export default function Index({ usuario, onSair }) {
           onSair={onSair}
           onMenu={() => setSidebarAberta(true)}
         />
-        <div className="relative grid flex-1 grid-cols-1 overflow-hidden lg:grid-cols-[18rem_minmax(0,1fr)]">
+        <div
+          className={`relative grid flex-1 grid-cols-1 overflow-hidden ${sidebarRecolhida ? "lg:grid-cols-[4rem_minmax(0,1fr)]" : "lg:grid-cols-[18rem_minmax(0,1fr)]"}`}
+        >
           <button
             type="button"
             aria-label="Fechar menu"
@@ -44,7 +47,7 @@ export default function Index({ usuario, onSair }) {
             className={`fixed inset-0 z-30 cursor-default bg-black/50 transition-opacity duration-300 lg:hidden ${sidebarAberta ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0"}`}
           />
           <Sidebar
-            className={`fixed inset-y-0 left-0 z-40 flex w-[min(85vw,20rem)] transform transition-transform duration-300 ease-in-out ${sidebarAberta ? "translate-x-0" : "-translate-x-full"} h-full lg:relative lg:inset-auto lg:z-auto lg:flex lg:w-auto lg:translate-x-0`}
+            className={`fixed top-0 bottom-0 left-0 z-40 flex w-[min(85vw,20rem)] transform transition-transform duration-300 ease-in-out ${sidebarAberta ? "translate-x-0" : "-translate-x-full"} h-full lg:relative lg:inset-auto lg:z-auto lg:flex lg:w-auto lg:translate-x-0 ${sidebarRecolhida ? "lg:w-16" : ""}`}
             sessoes={sessoes}
             sessaoAtiva={sessaoAtiva}
             carregandoSessoes={carregandoSessoes}
@@ -58,6 +61,8 @@ export default function Index({ usuario, onSair }) {
             filtros={filtros}
             onDefinirFiltro={definirFiltro}
             onClose={() => setSidebarAberta(false)}
+            recolhida={sidebarRecolhida}
+            onAlternarRecolhida={() => setSidebarRecolhida((atual) => !atual)}
           />
           <div className="flex h-full min-h-0 flex-col overflow-hidden bg-fundo">
             {mensagens.length === 0 ? (
