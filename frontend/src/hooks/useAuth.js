@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { entrar, me, registrar, sair } from "../services/api";
+import { entrar, me, registrar, sair } from "../services/authService";
 
 export default function useAuth() {
   const [usuario, setUsuario] = useState(null);

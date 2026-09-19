@@ -15,7 +15,7 @@ export default function Drop({ className, onArquivo }) {
     >
       <span className="rounded-lg bg-borda px-1 py-2 text-5xl">📄</span>
       <span className="font-bold">Anexe seu documento</span>
-      <span className="w-1/3 text-center text-wrap text-gray-400">
+      <span className=" md:w-1/3 text-center text-wrap text-gray-400 sm:w-auto">
         Envie um PDF — rascunho, resumo ou proposta — e o SmartPapers encontrará
         artigos relacionados ao conteúdo do documento.
       </span>

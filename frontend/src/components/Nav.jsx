@@ -1,10 +1,20 @@
-export default function Nav({ className, usuario, onSair }) {
+import MenuIcon from "@mui/icons-material/Menu";
+
+export default function Nav({ className, usuario, onSair, onMenu }) {
   return (
     <nav
       className={`flex h-12 shrink-0 flex-row items-center justify-between border-b-2 border-b-borda bg-fundo ${className}`}
     >
-      <div className="flex">
-        <span className="ps-5 self-center whitespace-nowrap text-xl font-semibold dark:text-[#4f9cf9]">
+      <div className="flex items-center">
+        <button
+          type="button"
+          onClick={onMenu}
+          aria-label="Abrir menu"
+          className="ms-3 cursor-pointer text-[#888] hover:text-white lg:hidden"
+        >
+          <MenuIcon />
+        </button>
+        <span className="ps-2 self-center whitespace-nowrap text-xl font-semibold dark:text-[#4f9cf9] md:ps-5">
           Smart
         </span>
         <span className="self-center whitespace-nowrap text-xl font-semibold dark:text-white">

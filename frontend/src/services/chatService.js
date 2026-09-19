@@ -1,4 +1,4 @@
-import api, { mensagemDeErro } from "./api";
+import api, { mensagemDeErro } from "./authService";
 
 export async function enviarMensagem({
   mensagem,

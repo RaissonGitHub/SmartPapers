@@ -5,6 +5,7 @@ import Seletor from "./Seletor";
 import ArtigoCard from "./ArtigoCard";
 import Modal from "@mui/material/Modal";
 import Tooltip from "@mui/material/Tooltip";
+import CloseIcon from "@mui/icons-material/Close";
 import { useState } from "react";
 
 export default function Sidebar({
@@ -21,6 +22,7 @@ export default function Sidebar({
   carregandoAreas = false,
   filtros = { anoInicio: null, anoFim: null, area: "" },
   onDefinirFiltro,
+  onClose,
 }) {
   const [sessaoParaExcluir, setSessaoParaExcluir] = useState(null);
   const confirmarExclusao = () => {
@@ -33,6 +35,16 @@ export default function Sidebar({
       <div
         className={`flex h-full flex-col bg-fundo border-e-2 border-borda ${className}`}
       >
+        <div className="flex justify-end p-2 lg:hidden">
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Fechar menu"
+            className="cursor-pointer text-[#888] hover:text-white"
+          >
+            <CloseIcon />
+          </button>
+        </div>
         {/* Conversas */}
         <div className="h-2/5">
           <div>

@@ -26,13 +26,25 @@ export default function Index({ usuario, onSair }) {
     definirFiltro,
   } = useConversa();
   const [arquivo, setArquivo] = useState(null);
+  const [sidebarAberta, setSidebarAberta] = useState(false);
   return (
     <>
       <div className="flex h-screen flex-col overflow-hidden">
-        <Nav className={"w-full"} usuario={usuario} onSair={onSair} />
-        <div className="grid flex-1 grid-cols-7 overflow-hidden">
+        <Nav
+          className={"w-full"}
+          usuario={usuario}
+          onSair={onSair}
+          onMenu={() => setSidebarAberta(true)}
+        />
+        <div className="relative grid flex-1 grid-cols-1 overflow-hidden lg:grid-cols-[18rem_minmax(0,1fr)]">
+          <button
+            type="button"
+            aria-label="Fechar menu"
+            onClick={() => setSidebarAberta(false)}
+            className={`fixed inset-0 z-30 cursor-default bg-black/50 transition-opacity duration-300 lg:hidden ${sidebarAberta ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0"}`}
+          />
           <Sidebar
-            className={"col-span-1 h-full"}
+            className={`fixed inset-y-0 left-0 z-40 flex w-[min(85vw,20rem)] transform transition-transform duration-300 ease-in-out ${sidebarAberta ? "translate-x-0" : "-translate-x-full"} h-full lg:relative lg:inset-auto lg:z-auto lg:flex lg:w-auto lg:translate-x-0`}
             sessoes={sessoes}
             sessaoAtiva={sessaoAtiva}
             carregandoSessoes={carregandoSessoes}
@@ -45,8 +57,9 @@ export default function Index({ usuario, onSair }) {
             carregandoAreas={carregandoAreas}
             filtros={filtros}
             onDefinirFiltro={definirFiltro}
+            onClose={() => setSidebarAberta(false)}
           />
-          <div className="col-span-6 flex h-full min-h-0 flex-col overflow-hidden bg-fundo ">
+          <div className="flex h-full min-h-0 flex-col overflow-hidden bg-fundo">
             {mensagens.length === 0 ? (
               <Drop className="w-full flex-1" onArquivo={setArquivo} />
             ) : (

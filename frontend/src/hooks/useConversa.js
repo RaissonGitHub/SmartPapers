@@ -5,7 +5,7 @@ import {
   listarAreas,
   listarSessoes,
   obterSessao,
-} from "../services/chat";
+} from "../services/chatService";
 
 const ordenarArtigos = (lista) => {
   const unicos = new Map();

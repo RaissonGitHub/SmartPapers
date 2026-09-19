@@ -118,12 +118,16 @@ export default function InputChat({
             "& textarea": {
               color: "#fff",
               colorScheme: "dark",
+              "&::placeholder": {
+                color: "#fff",
+                opacity: 1,
+              },
             },
           }}
         >
           <Tooltip title="Anexar pdf">
             <ChatComposerAttachButton aria-label="Anexar pdf">
-              <AttachFileIcon sx={{color:'white'}}/>
+              <AttachFileIcon sx={{ color: "white" }} />
             </ChatComposerAttachButton>
           </Tooltip>
           <Tooltip
@@ -184,20 +188,21 @@ export default function InputChat({
           <ChatComposerTextArea
             aria-label="Mensagem"
             placeholder="Digite uma mensagem"
-            minRows={1}
             maxRows={5}
             className="w-full resize-none overflow-x-hidden overflow-y-auto rounded-full border border-borda bg-transparent px-10 py-2 text-white outline-none transition-colors focus:border-blue-500"
           />
           <ChatComposerAttachmentList />
           <ChatComposerToolbar>
             <Tooltip title="Enviar">
-              <ChatComposerSendButton
-                aria-label="Enviar mensagem"
-                disabled={carregando}
-                className="h-10 w-10 shrink-0 rounded-full border-0 bg-[#1d60a3] text-white transition hover:cursor-pointer hover:bg-[#12477c] disabled:cursor-not-allowed disabled:bg-[#2a2a2a] disabled:opacity-50"
-              >
-                <ArrowForwardIcon />
-              </ChatComposerSendButton>
+              <span>
+                <ChatComposerSendButton
+                  aria-label="Enviar mensagem"
+                  disabled={carregando}
+                  className="h-10 w-10 shrink-0 rounded-full border-0 bg-[#1d60a3] text-white transition hover:cursor-pointer hover:bg-[#12477c] disabled:cursor-not-allowed disabled:bg-[#2a2a2a] disabled:opacity-50"
+                >
+                  <ArrowForwardIcon />
+                </ChatComposerSendButton>
+              </span>
             </Tooltip>
           </ChatComposerToolbar>
         </ChatComposer>

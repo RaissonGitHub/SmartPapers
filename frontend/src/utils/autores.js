@@ -1,4 +1,4 @@
-export const LIMITE_AUTORES = 10;
+export const LIMITE_AUTORES = 5;
 
 export function normalizarAutores(autores) {
   if (Array.isArray(autores)) return autores.filter(Boolean);
