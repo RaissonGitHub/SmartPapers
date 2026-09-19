@@ -17,6 +17,7 @@ class Sessao(Base):
     artigos_contexto = models.JSONField(default=list)
     pdf_nome = models.CharField(max_length=500, blank=True, default="")
     pdf_secoes = models.JSONField(default=list, blank=True)
+    pdfs = models.JSONField(default=list, blank=True)
 
     class Meta:
         db_table = "sessao"

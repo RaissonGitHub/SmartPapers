@@ -34,6 +34,56 @@ _RE_SECAO = re.compile(
     re.IGNORECASE,
 )
 
+# Texto editorial/rodapé que não deve virar consulta de busca nem contexto.
+_PADROES_LIXO = [
+    re.compile(r"copyright", re.IGNORECASE),
+    re.compile(r"licensed use limited", re.IGNORECASE),
+    re.compile(r"authorized licensed use", re.IGNORECASE),
+    re.compile(r"downloaded on", re.IGNORECASE),
+    re.compile(r"restrictions apply", re.IGNORECASE),
+    re.compile(r"senior member of the (ieee|institute)", re.IGNORECASE),
+    re.compile(r"\d{4} ieee", re.IGNORECASE),
+    re.compile(r"©\s*\d{4}"),
+    re.compile(
+        r"received\s+(january|february|march|april|may|june|july|august|"
+        r"september|october|november|december)\s+\d{1,2},\s+\d{4}",
+        re.IGNORECASE,
+    ),
+]
+
+
+def _juntar_hifenizacao(texto: str) -> str:
+    """Une palavras quebradas por hífen no fim da linha extraída do PDF."""
+    return re.sub(r"(\w)[\u002d\u2010\u2011]\r?\n(\w)", r"\1\2", texto or "")
+
+
+def _cortar_por_frases(texto: str, limite: int) -> list[str]:
+    """Corta um texto longo em limites de palavra, sem quebrar no meio."""
+    partes = []
+    restante = texto.strip()
+    while len(restante) > limite:
+        corte = restante.rfind(" ", 0, limite)
+        if corte < 1:
+            corte = limite
+        trecho = restante[:corte].strip()
+        if trecho:
+            partes.append(trecho)
+        restante = restante[corte:].lstrip()
+    if restante:
+        partes.append(restante)
+    return partes
+
+
+def _eh_lixo(texto: str) -> bool:
+    """True se o trecho parece rodapé editorial (copyright, licença etc.)."""
+    return any(p.search(texto or "") for p in _PADROES_LIXO)
+
+
+def _limpar_lixo(texto: str) -> str:
+    """Remove apenas as linhas que parecem rodapé editorial do PDF."""
+    mantidas = [l for l in (texto or "").splitlines() if not _eh_lixo(l)]
+    return "\n".join(mantidas).strip()
+
 
 def extrair_texto_pdf(arquivo) -> str:
     """Extrai o texto de um arquivo PDF (UploadedFile ou binário)."""
@@ -55,20 +105,30 @@ def extrair_texto_pdf(arquivo) -> str:
 
 
 def dividir_em_secoes(texto: str, tam_max: int | None = None) -> list[str]:
-    """Divide o texto em blocos heurísticos de até `tam_max` caracteres."""
+    """Divide o texto em blocos de até `tam_max`, cortando em limites de palavra."""
     limite = tam_max or TAM_MAX_SECAO
-    paragrafos = [p.strip() for p in texto.splitlines() if p.strip()]
+    texto_normalizado = _juntar_hifenizacao(texto)
+    paragrafos = [
+        p.strip() for p in re.split(r"\n\s*\n", texto_normalizado) if p.strip()
+    ]
     secoes = []
     atual = []
     tamanho = 0
 
     for paragrafo in paragrafos:
+        if len(paragrafo) > limite:
+            if atual:
+                secoes.append("\n".join(atual))
+                atual = []
+                tamanho = 0
+            secoes.extend(_cortar_por_frases(paragrafo, limite))
+            continue
         if tamanho + len(paragrafo) > limite and atual:
             secoes.append("\n".join(atual))
             atual = []
             tamanho = 0
         atual.append(paragrafo)
-        tamanho += len(paragrafo)
+        tamanho += len(paragrafo) + 1
 
     if atual:
         secoes.append("\n".join(atual))
@@ -125,13 +185,17 @@ def secoes_processadas(
         for indice_rel, texto_secao in enumerate(lote):
             indice_global = inicio + indice_rel + 1
             tipo, resumo = resumos.get(indice_global, ("conteudo", ""))
-            if tipo != "conteudo":
+            if tipo not in ("conteudo", "referencia"):
+                continue
+            texto_secao_limpo = _limpar_lixo(texto_secao)
+            if not texto_secao_limpo:
                 continue
             secoes_final.append(
                 {
                     "indice": indice_global,
-                    "resumo": resumo or texto_secao[:300],
-                    "texto": texto_secao[:2000],
+                    "tipo": tipo,
+                    "resumo": resumo or texto_secao_limpo[:300],
+                    "texto": texto_secao_limpo[:2000],
                 }
             )
 
@@ -154,7 +218,9 @@ def secoes_relevantes(
 
     try:
         vetores_secoes = np.asarray(
-            gerar_embedding_lote([s.get("resumo", "") for s in secoes])
+            gerar_embedding_lote(
+                [s.get("texto") or s.get("resumo") or "" for s in secoes]
+            )
         )
         vetores_consultas = np.asarray(gerar_embedding_lote(consultas_limpas))
         if vetores_secoes.size == 0 or vetores_consultas.size == 0:

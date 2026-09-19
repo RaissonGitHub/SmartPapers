@@ -333,6 +333,23 @@ class AgentePdfTestCase(TestCase):
             [{"indice": 1, "resumo": "Resumo", "texto": "Texto"}],
         )
 
+    def test_mensagens_retornadas_em_ordem_cronologica(self):
+        sessao = Sessao.objects.create(
+            sessao_id="ordem-msg",
+            titulo="Ordem",
+            usuario=self.usuario,
+        )
+        for conteudo in ["pergunta 1", "resposta 1", "pergunta 2", "resposta 2"]:
+            papel = "USUARIO" if conteudo.startswith("pergunta") else "MODELO"
+            Mensagem.objects.create(sessao=sessao, papel=papel, conteudo=conteudo)
+
+        resposta = self.client.get(f"/chat/sessoes/{sessao.id}/")
+        self.assertEqual(resposta.status_code, 200)
+        conteudos = [m["conteudo"] for m in resposta.data["mensagens"]]
+        self.assertEqual(
+            conteudos, ["pergunta 1", "resposta 1", "pergunta 2", "resposta 2"]
+        )
+
 
 class AutenticacaoTestCase(TestCase):
     def setUp(self):

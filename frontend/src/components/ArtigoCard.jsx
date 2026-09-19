@@ -6,7 +6,6 @@ export default function ArtigoCard({
   resumo,
   autores,
   ano,
-  sim,
   link,
 }) {
   const [open, setOpen] = useState(false);
@@ -24,11 +23,6 @@ export default function ArtigoCard({
           <p className="line-clamp-2 text-[13px] font-semibold leading-[1.4] text-[#4f9cf9]">
             {titulo}
           </p>
-          {sim != null && (
-            <span className="mt-0.5 shrink-0 rounded-full bg-[#dce9fb] px-2 py-0.5 text-[11px] text-[#1e3a5f]">
-              {sim}% similaridade
-            </span>
-          )}
         </div>
         <div className="mt-1 text-xs text-gray-600">
           {autoresResumo}
@@ -66,12 +60,6 @@ export default function ArtigoCard({
                   {autoresTodos && " · "}
                   {ano || "S/D"} ·{" "}
                 </span>
-
-                {sim != null && (
-                  <span className="rounded-full bg-blue-500/15 px-2 py-1 text-xs text-blue-400">
-                    {sim}% similaridade
-                  </span>
-                )}
               </div>
 
               <div className="mt-5 whitespace-pre-line text-sm leading-6 text-gray-300">

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   enviarMensagem,
   excluirSessao as excluirSessaoApi,
@@ -17,17 +17,43 @@ const ordenarArtigos = (lista) => {
   return [...unicos.values()];
 };
 
+const compararMensagens = (a, b) => {
+  const instanteA = Date.parse(a.criada_em);
+  const instanteB = Date.parse(b.criada_em);
+  if (!Number.isNaN(instanteA) && !Number.isNaN(instanteB)) {
+    if (instanteA !== instanteB) return instanteA - instanteB;
+  } else if (a.criada_em !== b.criada_em) {
+    if (!a.criada_em) return 1;
+    if (!b.criada_em) return -1;
+    return a.criada_em < b.criada_em ? -1 : 1;
+  }
+  return (a.id ?? 0) - (b.id ?? 0);
+};
+
+const papelDaMensagem = (papel) => {
+  const papelNormalizado = String(papel ?? "").toLowerCase();
+  return papelNormalizado === "modelo" ||
+    papelNormalizado === "model" ||
+    papelNormalizado === "assistant"
+    ? "model"
+    : "user";
+};
+
 const mapearMensagens = (mensagens) =>
-  mensagens.map((m) => ({
-    papel: m.papel === "MODELO" ? "model" : "user",
-    conteudo: m.conteudo,
-    artigos: m.artigos ?? [],
-    pdf_nome: m.pdf_nome ?? "",
-  }));
+  mensagens
+    .map((m, i) => ({
+      id: m.id ?? i,
+      papel: papelDaMensagem(m.papel),
+      conteudo: m.conteudo,
+      artigos: m.artigos ?? [],
+      pdf_nome: m.pdf_nome ?? "",
+      criada_em: m.criada_em ?? "",
+    }))
+    .sort(compararMensagens);
 
 export default function useConversa() {
   const [mensagens, setMensagens] = useState([]);
-  const [carregando, setCarregando] = useState(false);
+  const [carregamento, setCarregamento] = useState(null);
   const [erro, setErro] = useState("");
   const [sessaoId, setSessaoId] = useState(null);
   const [sessaoAtiva, setSessaoAtiva] = useState(null);
@@ -42,6 +68,16 @@ export default function useConversa() {
     anoFim: null,
     area: "",
   });
+  const [chaveSessaoVisualizada, setChaveSessaoVisualizada] =
+    useState("nova-inicial");
+  const chaveSessaoVisualizadaRef = useRef("nova-inicial");
+
+  const definirSessaoVisualizada = useCallback((chave) => {
+    chaveSessaoVisualizadaRef.current = chave;
+    setChaveSessaoVisualizada(chave);
+  }, []);
+
+  const carregando = carregamento?.chave === chaveSessaoVisualizada;
 
   useEffect(() => {
     let cancelado = false;
@@ -90,29 +126,34 @@ export default function useConversa() {
     }
   }, []);
 
-  const selecionarSessao = useCallback(async (pk) => {
-    setCarregandoSessao(true);
-    setErro("");
-    try {
-      const detalhe = await obterSessao(pk);
-      setSessaoAtiva(detalhe.id);
-      setSessaoId(detalhe.sessao_id);
-      setMensagens(mapearMensagens(detalhe.mensagens ?? []));
-      setArtigosSessao(ordenarArtigos(detalhe.artigos_contexto ?? []));
-    } catch (e) {
-      setErro(e?.message ?? "Erro ao carregar a sessão.");
-    } finally {
-      setCarregandoSessao(false);
-    }
-  }, []);
+  const selecionarSessao = useCallback(
+    async (pk) => {
+      definirSessaoVisualizada(`sessao-${pk}`);
+      setCarregandoSessao(true);
+      setErro("");
+      try {
+        const detalhe = await obterSessao(pk);
+        setSessaoAtiva(detalhe.id);
+        setSessaoId(detalhe.sessao_id);
+        setMensagens(mapearMensagens(detalhe.mensagens ?? []));
+        setArtigosSessao(ordenarArtigos(detalhe.artigos_contexto ?? []));
+      } catch (e) {
+        setErro(e?.message ?? "Erro ao carregar a sessão.");
+      } finally {
+        setCarregandoSessao(false);
+      }
+    },
+    [definirSessaoVisualizada],
+  );
 
   const novaSessao = useCallback(() => {
+    definirSessaoVisualizada(`nova-${Date.now()}`);
     setMensagens([]);
     setArtigosSessao([]);
     setErro("");
     setSessaoId(null);
     setSessaoAtiva(null);
-  }, []);
+  }, [definirSessaoVisualizada]);
 
   const excluirSessao = useCallback(
     async (pk) => {
@@ -132,14 +173,23 @@ export default function useConversa() {
   );
 
   const enviar = useCallback(
-    async (texto, arquivo = null) => {
+    async (texto, arquivo = null, requisicao = undefined) => {
       const conteudo = texto.trim();
       if (!conteudo || carregando) return;
+      const chaveDaSessao = chaveSessaoVisualizadaRef.current;
       setErro("");
-      setCarregando(true);
+      setCarregamento({ chave: chaveDaSessao });
+      const emitidaAgora = new Date().toISOString();
+      const idOtimista = `temporaria-${emitidaAgora}`;
       setMensagens((prev) => [
         ...prev,
-        { papel: "user", conteudo, pdf_nome: arquivo?.name || "" },
+        {
+          id: idOtimista,
+          papel: "user",
+          conteudo,
+          pdf_nome: arquivo?.name || "",
+          criada_em: emitidaAgora,
+        },
       ]);
       try {
         const resultado = await enviarMensagem({
@@ -149,27 +199,48 @@ export default function useConversa() {
           ano_fim: filtros.anoFim || 0,
           area: filtros.area || "",
           pdf: arquivo || null,
+          requisicao,
         });
-        setSessaoAtiva((prev) => resultado.sessao ?? prev);
-        setSessaoId((prev) => resultado.sessao_id ?? prev);
-        setMensagens((prev) => [
-          ...prev,
-          {
-            papel: "model",
-            conteudo: resultado.resposta ?? "",
-            artigos: resultado.artigos ?? [],
-          },
-        ]);
-        if ((resultado.artigos ?? []).length > 0) {
-          setArtigosSessao((prev) =>
-            ordenarArtigos([...prev, ...(resultado.artigos ?? [])]),
-          );
+        if (chaveSessaoVisualizadaRef.current === chaveDaSessao) {
+          setSessaoAtiva((prev) => resultado.sessao ?? prev);
+          setSessaoId((prev) => resultado.sessao_id ?? prev);
+          setMensagens((prev) => {
+            const persistidas = resultado.mensagens;
+            if (Array.isArray(persistidas) && persistidas.length > 0) {
+              const semOtimista = prev.filter((m) => m.id !== idOtimista);
+              return mapearMensagens([...semOtimista, ...persistidas]);
+            }
+            return [
+              ...prev.filter((m) => m.id !== idOtimista),
+              {
+                papel: "user",
+                conteudo,
+                pdf_nome: arquivo?.name || "",
+                criada_em: emitidaAgora,
+              },
+              {
+                papel: "model",
+                conteudo: resultado.resposta ?? "",
+                artigos: resultado.artigos ?? [],
+                criada_em: new Date().toISOString(),
+              },
+            ];
+          });
+          if ((resultado.artigos ?? []).length > 0) {
+            setArtigosSessao((prev) =>
+              ordenarArtigos([...prev, ...(resultado.artigos ?? [])]),
+            );
+          }
+          await atualizarSessoes();
         }
-        await atualizarSessoes();
       } catch (e) {
-        setErro(e?.message ?? "Erro ao processar sua mensagem.");
+        if (chaveSessaoVisualizadaRef.current === chaveDaSessao) {
+          setErro(e?.message ?? "Erro ao processar sua mensagem.");
+        }
       } finally {
-        setCarregando(false);
+        setCarregamento((atual) =>
+          atual?.chave === chaveDaSessao ? null : atual,
+        );
       }
     },
     [carregando, sessaoId, filtros, atualizarSessoes],

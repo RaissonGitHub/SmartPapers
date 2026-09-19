@@ -13,5 +13,6 @@ class MensagemSerializer(serializers.ModelSerializer):
             "artigos",
             "ferramenta_utilizada",
             "pdf_nome",
+            "pdf_id",
             "criada_em",
         )

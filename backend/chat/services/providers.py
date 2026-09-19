@@ -41,6 +41,7 @@ class OllamaProvider(LLMProvider):
 
     def __init__(self, modelo: str = "qwen3:8b"):
         self.modelo = modelo
+        self.num_ctx = int(os.getenv("OLLAMA_NUM_CTX", "8192"))
 
     @staticmethod
     def _split_kwargs(kwargs: dict) -> tuple[dict, dict]:
@@ -57,6 +58,7 @@ class OllamaProvider(LLMProvider):
         **kwargs,
     ) -> Any:
         topo, options = self._split_kwargs(kwargs)
+        options.setdefault("num_ctx", self.num_ctx)
         return ollama_chat(
             model=self.modelo,
             messages=messages,
@@ -71,6 +73,7 @@ class OllamaProvider(LLMProvider):
         **kwargs,
     ) -> str:
         topo, options = self._split_kwargs(kwargs)
+        options.setdefault("num_ctx", self.num_ctx)
         resposta = ollama_chat(
             model=self.modelo,
             messages=messages,

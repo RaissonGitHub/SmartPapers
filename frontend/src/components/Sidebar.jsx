@@ -135,7 +135,6 @@ export default function Sidebar({
                   resumo={artigo.resumo}
                   autores={artigo.autores}
                   ano={artigo.ano_publicacao}
-                  sim={artigo.similaridade ?? artigo.relevancia}
                   link={artigo.link_original}
                 />
               ))

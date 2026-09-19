@@ -17,10 +17,12 @@ class Mensagem(Base):
     artigos = models.JSONField(default=list, blank=True)
     ferramenta_utilizada = models.BooleanField(default=False)
     pdf_nome = models.CharField(max_length=500, blank=True, default="")
+    pdf_id = models.IntegerField(null=True, blank=True)
     criada_em = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         db_table = "mensagem"
+        ordering = ["criada_em", "id"]
 
     def __str__(self):
         return f"[{self.papel}] {self.conteudo[:60]}"

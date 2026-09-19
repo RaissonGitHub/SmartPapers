@@ -32,6 +32,46 @@ SYSTEM_PROMPT = (
 )
 
 
+def selecionar_pdf(
+    pdfs: list[dict], mensagem: str, provedor: LLMProvider | None = None
+) -> tuple[int | None, list[dict]]:
+    """Pede ao LLM para escolher um PDF e devolve apenas suas seções."""
+    if not pdfs:
+        return None, []
+    if len(pdfs) == 1:
+        pdf = pdfs[0]
+        return pdf.get("id"), pdf.get("secoes") or []
+
+    indice = "\n".join(
+        f"id={pdf.get('id')} | nome={pdf.get('nome', '')} | "
+        f"descricao={pdf.get('descricao', '')}"
+        for pdf in pdfs
+    )
+    prompt = (
+        "Escolha qual documento PDF, se houver, deve responder à pergunta. "
+        "Responda somente JSON válido no formato {\"pdf_id\": número ou null}.\n\n"
+        f"Documentos disponíveis:\n{indice}\n\nPergunta: {mensagem}"
+    )
+    try:
+        resposta = (provedor or provedor_padrao).chat_simple(
+            messages=[
+                {
+                    "role": "system",
+                    "content": "Você seleciona documentos por relevância sem inventar informações.",
+                },
+                {"role": "user", "content": prompt},
+            ],
+            temperature=0,
+        )
+        escolha = json.loads(re.search(r"\{.*?\}", resposta or "", re.DOTALL).group())
+        pdf_id = escolha.get("pdf_id")
+    except (AttributeError, json.JSONDecodeError, TypeError, ValueError):
+        pdf_id = None
+
+    pdf = next((item for item in pdfs if item.get("id") == pdf_id), None)
+    return (pdf_id, pdf.get("secoes") or []) if pdf else (None, [])
+
+
 def _contexto_artigos_prompt(artigos) -> str:
     """Numera os artigos salvos na sessão para referência direta pelo modelo."""
     if not artigos:
@@ -66,11 +106,17 @@ def _mensagens_artigos_contexto(artigos_contexto) -> list[dict]:
 
 
 def _secoes_pdf_prompt(pdf_secoes) -> str:
-    """Formata as seções relevantes do PDF para o contexto do modelo."""
+    """Formata as seções de conteúdo do PDF para o contexto do modelo.
+
+    Referências bibliográficas participam apenas da recuperação, não da geração,
+    para evitar que o modelo trate artigos citados no PDF como recomendados.
+    """
     if not pdf_secoes:
         return ""
     blocos = []
     for indice, secao in enumerate(pdf_secoes, start=1):
+        if secao.get("tipo", "conteudo") != "conteudo":
+            continue
         resumo = (secao.get("resumo") or "").strip()
         texto = (secao.get("texto") or "").strip()
         blocos.append(f"[Seção {indice}] {resumo}\n{texto}")
@@ -91,6 +137,23 @@ def _mensagens_pdf_contexto(pdf_secoes) -> list[dict]:
             ),
         }
     ]
+
+
+def _mensagem_pdf_catalogo(pdf_catalogo) -> list[dict]:
+    if not pdf_catalogo:
+        return []
+    indice = "\n".join(
+        f"[{pdf.get('id')}] {pdf.get('nome', '')}: {pdf.get('descricao', '')}"
+        for pdf in pdf_catalogo
+    )
+    return [{
+        "role": "system",
+        "content": (
+            "Documentos PDF disponíveis nesta sessão. Use este índice para "
+            "entender referências a documentos anteriores; o conteúdo detalhado "
+            "do documento relevante será fornecido separadamente:\n\n" + indice
+        ),
+    }]
 
 
 def _requer_busca(mensagem: str, provedor: LLMProvider | None = None) -> bool:
@@ -122,8 +185,14 @@ def _buscar_dupla_artigos(
     area: str = "",
     provedor: LLMProvider | None = None,
     consultas_pdf: list[str] | None = None,
-) -> list[dict]:
-    """Busca nas consultas geradas + seções do PDF e reranke os resultados."""
+    retornar_medicao: bool = False,
+) -> list[dict] | tuple[list[dict], dict]:
+    """Busca nas consultas geradas + seções do PDF e reranke os resultados.
+
+    Com `retornar_medicao=True`, devolve `(artigos_final, medicao)` onde
+    `medicao` guarda consultas usadas, candidate set (ids + similaridade
+    antes do rerank) e o Top-K final (id + similaridade vetorial original).
+    """
     candidatos_por_lote = max(top_n * 3, 30)
     pool_rerank = max(top_n + 5, 15)
     p = provedor or provedor_padrao
@@ -151,15 +220,45 @@ def _buscar_dupla_artigos(
             print(f"[RAG] Falha na busca para '{texto[:80]}': {exc}")
             return []
 
-    consultas = [search_title_en, texto_reformulado] + consultas_pdf
+    consultas = [search_title_en, texto_reformulado, texto_original_usuario]
+    consultas += consultas_pdf
     with ThreadPoolExecutor(max_workers=min(4, len(consultas))) as executor:
         resultados = list(executor.map(executar_busca, consultas))
 
     print(f"[RAG] Resultados brutos: {len(resultados)} execuções de busca")
     pool = _mesclar_artigos_por_id(*resultados)[:pool_rerank]
+    print(
+        "[RAG] Medição Candidate Set:",
+        ",".join(
+            f"{a.get('id')}({a.get('similaridade')})" for a in pool
+        ),
+    )
     print(f"[RAG] Pool para rerank: {len(pool)} artigos")
     artigos_final = rerank_por_aderencia(texto_original_usuario, pool, top_n, provedor=p)
+    print(
+        "[RAG] Medição Top-K Final:",
+        ",".join(
+            f"{a.get('id')}({a.get('similaridade')})" for a in artigos_final
+        ),
+    )
     print(f"[RAG] Artigos finais retornados: {len(artigos_final)}")
+
+    if retornar_medicao:
+
+        def resumo_artigo(a):
+            return {
+                "id": a.get("id"),
+                "titulo": (a.get("titulo") or "")[:120],
+                "similaridade": a.get("similaridade"),
+            }
+
+        medicao = {
+            "consultas": consultas,
+            "candidate_set": [resumo_artigo(a) for a in pool],
+            "top_k_final": [resumo_artigo(a) for a in artigos_final],
+        }
+        return artigos_final, medicao
+
     return artigos_final
 
 
@@ -222,11 +321,13 @@ def _resposta_direta(
     provedor: LLMProvider | None = None,
     historico: list[dict] | None = None,
     artigos_contexto: list[dict] | None = None,
+    pdf_catalogo: list[dict] | None = None,
     pdf_secoes: list[dict] | None = None,
 ) -> dict:
     """Resposta conceitual geral: sem busca no banco."""
     p = provedor or provedor_padrao
     messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+    messages.extend(_mensagem_pdf_catalogo(pdf_catalogo))
     messages.extend(_mensagens_pdf_contexto(pdf_secoes))
     messages.extend(_mensagens_artigos_contexto(artigos_contexto))
     if historico:
@@ -242,6 +343,7 @@ def processar_mensagem_usuario(
     provedor: LLMProvider | None = None,
     historico: list[dict] | None = None,
     artigos_contexto: list[dict] | None = None,
+    pdf_catalogo: list[dict] | None = None,
     pdf_secoes: list[dict] | None = None,
     ano_inicio: int = 0,
     ano_fim: int = 0,
@@ -267,7 +369,7 @@ def processar_mensagem_usuario(
             ano_fim=ano_fim,
             area=area,
             provedor=p,
-            consultas_pdf=[s.get("resumo") for s in pdf_secoes],
+            consultas_pdf=[s.get("texto") or s.get("resumo") or "" for s in pdf_secoes],
         )
 
     # Override explícito da intenção: sem o campo, o modelo decide.
@@ -287,10 +389,12 @@ def processar_mensagem_usuario(
             provedor=p,
             historico=historico,
             artigos_contexto=artigos_contexto,
+            pdf_catalogo=pdf_catalogo,
             pdf_secoes=pdf_secoes,
         )
 
     messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+    messages.extend(_mensagem_pdf_catalogo(pdf_catalogo))
     messages.extend(_mensagens_pdf_contexto(pdf_secoes))
     messages.extend(_mensagens_artigos_contexto(artigos_contexto))
     if historico:

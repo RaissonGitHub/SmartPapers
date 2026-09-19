@@ -50,6 +50,31 @@ export default function Seletor({
         label={label}
         onChange={handleChange}
         disabled={carregando}
+        MenuProps={{
+          slotProps: {
+            paper: {
+              sx: {
+                backgroundColor: "#1a1a1a",
+                color: "#e5e7eb",
+                border: "1px solid #3a3a3a",
+              },
+            },
+          },
+          MenuListProps: {
+            sx: {
+              "& .MuiMenuItem-root": {
+                color: "#e5e7eb",
+                fontSize: 13,
+                fontFamily: "var(--font)",
+                "&:hover": { backgroundColor: "#2e2e2e" },
+                "&.Mui-selected": {
+                  backgroundColor: "#1e3a5f",
+                  "&:hover": { backgroundColor: "#2e4a75" },
+                },
+              },
+            },
+          },
+        }}
       >
         <MenuItem value="">
           <em>Nenhum</em>

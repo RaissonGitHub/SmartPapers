@@ -8,7 +8,6 @@ export default function ChatArtigoCard({ artigo }) {
   const autoresTodos =
     autoresCompletos(artigo.autores) || "Autores não informados";
   const autoresResumo = autoresResumidos(artigo.autores) || "Autores não informados";
-  const similaridade = artigo.similaridade ?? artigo.relevancia;
   const base = [artigo.ano_publicacao || "S/D", artigo.area_conhecimento || artigo.area]
     .filter(Boolean)
     .join(" · ");
@@ -36,11 +35,6 @@ export default function ChatArtigoCard({ artigo }) {
           <div className="line-clamp-2 text-[13px] font-semibold leading-[1.4] text-[#4f9cf9]">
             {artigo.titulo}
           </div>
-          {similaridade != null && (
-            <span className="mt-0.5 shrink-0 rounded-full bg-[#dce9fb] px-2 py-0.5 text-[11px] text-[#1e3a5f]">
-              {similaridade}% similaridade
-            </span>
-          )}
         </div>
         <div className="mt-1.5 text-[11.5px] text-[#888]">{meta}</div>
         {artigo.resumo && (
@@ -78,11 +72,6 @@ export default function ChatArtigoCard({ artigo }) {
 
             <div className="mt-3 flex flex-wrap items-center gap-2 text-sm text-gray-400">
               <span>{metaCompleto}</span>
-              {similaridade != null && (
-                <span className="rounded-full bg-blue-500/15 px-2 py-1 text-xs text-blue-400">
-                  {similaridade}% similaridade
-                </span>
-              )}
             </div>
 
             <div

@@ -7,11 +7,13 @@ export async function enviarMensagem({
   ano_fim = 0,
   area = "",
   pdf = null,
+  requisicao = null,
 }) {
   try {
     if (pdf) {
       const form = new FormData();
       form.append("mensagem", mensagem);
+      if (requisicao) form.append("requisicao", requisicao);
       if (sessao_id) form.append("sessao_id", sessao_id);
       if (ano_inicio) form.append("ano_inicio", String(ano_inicio));
       if (ano_fim) form.append("ano_fim", String(ano_fim));
@@ -24,6 +26,7 @@ export async function enviarMensagem({
     }
 
     const body = { mensagem };
+    if (requisicao) body.requisicao = requisicao;
     if (sessao_id) body.sessao_id = sessao_id;
     if (ano_inicio) body.ano_inicio = ano_inicio;
     if (ano_fim) body.ano_fim = ano_fim;

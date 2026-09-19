@@ -1,8 +1,10 @@
 import { useEffect, useRef } from "react";
+import ContentCopyIcon from "@mui/icons-material/ContentCopy";
+import IconButton from "@mui/material/IconButton";
 import ReactMarkdown from "react-markdown";
 import ChatArtigoCard from "./ChatArtigoCard";
 import LoadingSteps from "./LoadingSteps";
-
+import PictureAsPdfIcon from "@mui/icons-material/PictureAsPdf";
 const estilizarElemento = (Tag, className) =>
   function Elemento(props) {
     const { node, ...rest } = props;
@@ -40,43 +42,57 @@ export default function ChatArea({ className = "", mensagens, carregando }) {
     >
       <div className="flex min-h-full flex-col gap-4 p-5">
         {mensagens.map((m, i) => (
-          <div
-            key={i}
-            className={
-              m.papel === "user"
-                ? "flex flex-col items-end"
-                : "flex flex-col items-start"
-            }
-          >
-            <div
-              className={
-                m.papel === "user"
-                  ? "max-w-[70%] rounded-[16px_4px_16px_16px] bg-[#dce9fb] px-4 py-3 text-sm leading-relaxed text-[#1e3a5f]"
-                  : "max-w-160 rounded-[14px] rounded-bl-sm border border-borda bg-[#2e2e2e] px-4 py-3 text-sm leading-relaxed text-[#e8e8e8]"
-              }
-            >
-              {m.papel === "model" ? (
-                <ReactMarkdown components={MARKDOWN_COMPONENTS}>
-                  {m.conteudo}
-                </ReactMarkdown>
-              ) : (
-                <span className="whitespace-pre-line">{m.conteudo}</span>
-              )}
-
-              {m.papel === "user" && m.pdf_nome && (
-                <div className="mt-2.5 flex max-w-full items-center gap-2 rounded-lg border border-[#b6cde6] bg-white/60 px-3 py-2 text-xs font-medium text-[#1e3a5f]">
-                  <span className="shrink-0">📄</span>
-                  <span className="truncate">{m.pdf_nome}</span>
+          <div key={m.id ?? i}>
+            <div className="group relative">
+              <div
+                className={
+                  m.papel === "user"
+                    ? "flex flex-col items-end"
+                    : "flex flex-col items-start"
+                }
+              >
+                <div
+                  className={
+                    m.papel === "user"
+                      ? "max-w-[85%] rounded-[18px_4px_18px_18px] bg-[#dce9fb] px-4 py-3 text-[#1e3a5f]"
+                      : "max-w-[85%] rounded-[4px_18px_18px_18px] bg-[#303030] px-4 py-3 text-[#f1f1f1]"
+                  }
+                >
+                  <ReactMarkdown components={MARKDOWN_COMPONENTS}>
+                    {m.conteudo}
+                  </ReactMarkdown>
                 </div>
-              )}
 
-              {m.papel === "model" && m.artigos?.length > 0 && (
-                <div className="mt-3.5 flex max-w-full flex-col gap-3">
-                  {m.artigos.map((a, j) => (
-                    <ChatArtigoCard key={a.id ?? j} artigo={a} />
-                  ))}
-                </div>
-              )}
+                {m.papel === "user" && m.pdf_nome && (
+                  <div className="mt-2.5 flex max-w-[85%] items-center gap-2 rounded-lg border border-[#b6cde6] bg-white/60 px-3 py-2 text-start text-xs font-medium text-[#1e3a5f]">
+                    <span className="shrink-0">
+                      <PictureAsPdfIcon sx={{ fontSize: 20 }} />
+                    </span>
+                    <span className="truncate">{m.pdf_nome}</span>
+                  </div>
+                )}
+
+                {m.papel === "model" && m.artigos?.length > 0 && (
+                  <div className="mt-3.5 flex max-w-[55%] flex-col gap-3">
+                    {m.artigos.map((a, j) => (
+                      <ChatArtigoCard key={a.id ?? j} artigo={a} />
+                    ))}
+                  </div>
+                )}
+              </div>
+              <IconButton
+                aria-label="Copiar mensagem"
+                className={
+                  m.papel === "model"
+                    ? "absolute right-0 top-full opacity-100"
+                    : "invisible absolute left-[98%] top-full opacity-0 transition-opacity group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100"
+                }
+                onClick={() => navigator.clipboard.writeText(m.conteudo)}
+                size="small"
+                title="Copiar mensagem"
+              >
+                <ContentCopyIcon fontSize="small" className="text-white" />
+              </IconButton>
             </div>
           </div>
         ))}

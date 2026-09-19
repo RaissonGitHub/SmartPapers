@@ -6,7 +6,7 @@ from chat.enumerations import Papel
 from chat.models import Mensagem, Sessao
 
 from .pdf_service import processar_pdf
-from .rag import processar_mensagem_usuario
+from .rag import processar_mensagem_usuario, selecionar_pdf
 
 
 def _usuario_autenticado(usuario):
@@ -48,6 +48,7 @@ def salvar_mensagem(
     artigos=None,
     ferramenta_utilizada: bool = False,
     pdf_nome: str = "",
+    pdf_id: int | None = None,
 ) -> Mensagem:
     return Mensagem.objects.create(
         sessao=sessao,
@@ -56,7 +57,21 @@ def salvar_mensagem(
         artigos=artigos or [],
         ferramenta_utilizada=ferramenta_utilizada,
         pdf_nome=(pdf_nome or "")[:500],
+        pdf_id=pdf_id,
     )
+
+
+def serializar_mensagem(mensagem: Mensagem) -> dict:
+    return {
+        "id": mensagem.id,
+        "papel": mensagem.papel,
+        "conteudo": mensagem.conteudo,
+        "artigos": mensagem.artigos,
+        "ferramenta_utilizada": mensagem.ferramenta_utilizada,
+        "pdf_nome": mensagem.pdf_nome,
+        "pdf_id": mensagem.pdf_id,
+        "criada_em": mensagem.criada_em.isoformat(),
+    }
 
 
 def historico_sessao(sessao: Sessao, max_mensagens: int = 20) -> list[dict]:
@@ -88,17 +103,53 @@ def processar_e_salvar(
         sessao.save(update_fields=["titulo"])
 
     pdf_nome = (getattr(pdf, "name", "") or "")[:500] if pdf else ""
+    pdfs = list(getattr(sessao, "pdfs", None) or [])
     if pdf:
         secoes_pdf = processar_pdf(pdf, [mensagem], provider)
+        pdf_id = max((item.get("id", 0) for item in pdfs), default=0) + 1
+        descricao = next(
+            (
+                (secao.get("resumo") or "")[:180]
+                for secao in secoes_pdf
+                if secao.get("tipo", "conteudo") != "referencia"
+            ),
+            "",
+        )
+        pdfs.append(
+            {
+                "id": pdf_id,
+                "nome": pdf_nome,
+                "ordem": len(pdfs) + 1,
+                "descricao": descricao,
+                "secoes": secoes_pdf,
+            }
+        )
         sessao.pdf_nome = pdf_nome
         sessao.pdf_secoes = secoes_pdf
-        sessao.save(update_fields=["pdf_nome", "pdf_secoes"])
+        sessao.pdfs = pdfs
+        sessao.save(update_fields=["pdf_nome", "pdf_secoes", "pdfs"])
     else:
-        secoes_pdf = sessao.pdf_secoes or []
+        if not pdfs and (sessao.pdf_nome or sessao.pdf_secoes):
+            pdfs = [
+                {
+                    "id": 1,
+                    "nome": sessao.pdf_nome,
+                    "ordem": 1,
+                    "descricao": "",
+                    "secoes": sessao.pdf_secoes or [],
+                }
+            ]
+        pdf_id, secoes_pdf = selecionar_pdf(pdfs, mensagem, provider)
+        pdf_selecionado = next(
+            (item for item in pdfs if item.get("id") == pdf_id), None
+        )
+        pdf_nome = (pdf_selecionado or {}).get("nome", "")[:500]
 
     historico = historico_sessao(sessao)
 
-    salvar_mensagem(sessao, Papel.USUARIO, mensagem, pdf_nome=pdf_nome)
+    mensagem_usuario = salvar_mensagem(
+        sessao, Papel.USUARIO, mensagem, pdf_nome=pdf_nome, pdf_id=pdf_id
+    )
 
     resultado = processar_mensagem_usuario(
         mensagem=mensagem,
@@ -106,6 +157,7 @@ def processar_e_salvar(
         provedor=provider,
         historico=historico,
         artigos_contexto=sessao.artigos_contexto,
+        pdf_catalogo=pdfs,
         pdf_secoes=secoes_pdf,
         ano_inicio=ano_inicio,
         ano_fim=ano_fim,
@@ -113,12 +165,13 @@ def processar_e_salvar(
     )
 
     artigos = resultado.get("artigos") or []
-    salvar_mensagem(
+    mensagem_modelo = salvar_mensagem(
         sessao,
         Papel.MODELO,
         resultado.get("resposta", ""),
         artigos=artigos,
         ferramenta_utilizada=resultado.get("ferramenta_utilizada", False),
+        pdf_id=pdf_id,
     )
 
     if artigos:
@@ -131,4 +184,8 @@ def processar_e_salvar(
 
     resultado["sessao_id"] = sessao.sessao_id
     resultado["sessao"] = sessao.id
+    resultado["mensagens"] = [
+        serializar_mensagem(mensagem_usuario),
+        serializar_mensagem(mensagem_modelo),
+    ]
     return resultado
