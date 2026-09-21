@@ -7,6 +7,30 @@ from ..services.conversa_service import processar_e_salvar
 from ..services.providers import criar_provedor
 
 
+def _mensagem_erro_provedor(exc, api_key=None):
+    """Converte exceções de provedores LLM em mensagem amigável (ou None).
+
+    Imports do SDK são feitos aqui (preguiçosos) para manter a isolação entre
+    os provedores: instalar/rodar apenas Google não exige o pacote do Ollama e
+    vice-versa.
+    """
+    try:
+        from google.genai import errors as erros_genai
+    except ImportError:
+        erros_genai = None
+
+    if erros_genai is not None and isinstance(exc, erros_genai.APIError):
+        mensagem = (exc.message or str(exc)).strip()
+        if api_key:
+            mensagem = mensagem.replace(api_key, "***")
+        return f"Erro na chamada ao Gemini: {mensagem}"
+
+    if getattr(type(exc), "__module__", "").startswith("ollama"):
+        return f"Erro na chamada ao Ollama: {exc}"
+
+    return None
+
+
 class AgentChatView(APIView):
     """
     Endpoint com busca híbrida paralela (Título em Inglês gerado + Texto Cru).
@@ -31,6 +55,8 @@ class AgentChatView(APIView):
     def post(self, request):
         mensagem = request.data.get("mensagem")
         provider_name = request.data.get("provider", "").lower()
+        api_key = (request.data.get("api_key") or "").strip() or None
+        modelo = (request.data.get("modelo") or "").strip() or None
         requisicao = request.data.get("requisicao", "").lower()
         sessao_id = request.data.get("sessao_id")
         area = request.data.get("area", "") or ""
@@ -61,17 +87,33 @@ class AgentChatView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        provedor = criar_provedor(provider_name) if provider_name else None
-        resultado = processar_e_salvar(
-            mensagem=mensagem,
-            sessao_key=sessao_id,
-            usuario=request.user,
-            requisicao=requisicao or None,
-            provider=provedor,
-            ano_inicio=ano_inicio,
-            ano_fim=ano_fim,
-            area=area,
-            pdf=pdf,
-        )
+        try:
+            if provider_name:
+                provedor = criar_provedor(
+                    provider_name, api_key=api_key, modelo=modelo
+                )
+            elif api_key or modelo:
+                provedor = criar_provedor("gemini", api_key=api_key, modelo=modelo)
+            else:
+                provedor = None
+            resultado = processar_e_salvar(
+                mensagem=mensagem,
+                sessao_key=sessao_id,
+                usuario=request.user,
+                requisicao=requisicao or None,
+                provider=provedor,
+                ano_inicio=ano_inicio,
+                ano_fim=ano_fim,
+                area=area,
+                pdf=pdf,
+            )
+        except Exception as exc:
+            mensagem_erro = _mensagem_erro_provedor(exc, api_key=api_key)
+            if mensagem_erro is None:
+                raise
+            return Response(
+                {"erro": mensagem_erro},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
 
         return Response(resultado, status=status.HTTP_200_OK)

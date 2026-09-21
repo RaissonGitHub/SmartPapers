@@ -10,7 +10,19 @@ class AgentChatRequestSerializer(serializers.Serializer):
     provider = serializers.CharField(
         required=False,
         allow_blank=True,
-        help_text="'ollama' ou 'gemini'. Ausente = provedor padrão.",
+        help_text="'ollama' ou 'gemini'. Ausente = provedor padrão (LLM_PROVIDER).",
+    )
+    api_key = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        write_only=True,
+        help_text="Chave da API do Google (Gemini). Usada apenas nesta requisição.",
+    )
+    modelo = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        write_only=True,
+        help_text="Nome do modelo do Gemini selecionado pelo usuário.",
     )
     requisicao = serializers.ChoiceField(
         choices=("", "busca", "resposta"),

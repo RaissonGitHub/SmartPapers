@@ -173,7 +173,7 @@ export default function useConversa() {
   );
 
   const enviar = useCallback(
-    async (texto, arquivo = null, requisicao = undefined) => {
+    async (texto, arquivo = null, requisicao = undefined, opcoes = {}) => {
       const conteudo = texto.trim();
       if (!conteudo || carregando) return;
       const chaveDaSessao = chaveSessaoVisualizadaRef.current;
@@ -200,6 +200,7 @@ export default function useConversa() {
           area: filtros.area || "",
           pdf: arquivo || null,
           requisicao,
+          ...opcoes,
         });
         if (chaveSessaoVisualizadaRef.current === chaveDaSessao) {
           setSessaoAtiva((prev) => resultado.sessao ?? prev);

@@ -8,6 +8,9 @@ export async function enviarMensagem({
   area = "",
   pdf = null,
   requisicao = null,
+  provider = null,
+  api_key = null,
+  modelo = null,
 }) {
   try {
     if (pdf) {
@@ -18,6 +21,9 @@ export async function enviarMensagem({
       if (ano_inicio) form.append("ano_inicio", String(ano_inicio));
       if (ano_fim) form.append("ano_fim", String(ano_fim));
       if (area) form.append("area", area);
+      if (provider) form.append("provider", provider);
+      if (api_key) form.append("api_key", api_key);
+      if (modelo) form.append("modelo", modelo);
       form.append("pdf", pdf);
       const { data } = await api.post("/chat/agente/", form, {
         timeout: 600000,
@@ -31,6 +37,9 @@ export async function enviarMensagem({
     if (ano_inicio) body.ano_inicio = ano_inicio;
     if (ano_fim) body.ano_fim = ano_fim;
     if (area) body.area = area;
+    if (provider) body.provider = provider;
+    if (api_key) body.api_key = api_key;
+    if (modelo) body.modelo = modelo;
     const { data } = await api.post("/chat/agente/", body, {
       timeout: 600000,
     });
@@ -46,6 +55,17 @@ export async function enviarMensagem({
       throw new Error(punicao, { cause: erro });
     }
     throw new Error(mensagemDeErro(erro, "Erro ao processar sua mensagem."), {
+      cause: erro,
+    });
+  }
+}
+
+export async function listarModelos(apiKey) {
+  try {
+    const { data } = await api.post("/chat/modelos/", { api_key: apiKey });
+    return data?.modelos ?? [];
+  } catch (erro) {
+    throw new Error(mensagemDeErro(erro, "Erro ao listar os modelos."), {
       cause: erro,
     });
   }

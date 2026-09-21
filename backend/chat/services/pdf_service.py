@@ -3,12 +3,12 @@
 import os
 import re
 
-import fitz
+import pymupdf
 import numpy as np
 
 from artigos.services.gerar_embedding_service import gerar_embedding_lote
 
-from .providers import LLMProvider, provedor_padrao
+from .providers import LLMProvider, usar_provedor
 from .refinamento import _limpar_pensamento
 
 TAM_MAX_SECAO = int(os.getenv("PDF_TAM_SECAO", "2000"))
@@ -30,7 +30,7 @@ PROMPT_SECOES = (
 )
 
 _RE_SECAO = re.compile(
-    r"SECAO\s+(\d+)\s*\|\s*(conteudo|referencia)\s*\|\s*(.+)",
+    r"SECAO\s+(\d+)\s*\|\s*\*?(conte[uú]do|refer[eê]ncia)\*?\s*\|\s*(.+)",
     re.IGNORECASE,
 )
 
@@ -92,7 +92,7 @@ def extrair_texto_pdf(arquivo) -> str:
         arquivo.seek(0)
     if not dados:
         return ""
-    with fitz.open(stream=dados, filetype="pdf") as doc:
+    with pymupdf.open(stream=dados, filetype="pdf") as doc:
         paginas = []
         for pagina in doc:
             try:
@@ -139,23 +139,36 @@ def dividir_em_secoes(texto: str, tam_max: int | None = None) -> list[str]:
 def _parsear_resumo_secoes(resposta: str) -> dict[int, tuple[str, str]]:
     """Converte a resposta do LLM em {indice: (tipo, resumo)}."""
     resultado = {}
-    for linha in (resposta or "").splitlines():
+    texto = (resposta or "").replace("```", "").replace("**", "")
+    for linha in texto.splitlines():
         compativel = _RE_SECAO.search(linha)
         if not compativel:
             continue
         indice = int(compativel.group(1))
-        tipo = compativel.group(2).lower()
+        tipo = _normalizar_tipo_secao(compativel.group(2))
         resumo = compativel.group(3).strip()
         if resumo:
             resultado[indice] = (tipo, resumo)
     return resultado
 
 
+def _normalizar_tipo_secao(tipo: str) -> str:
+    """Normaliza o tipo de seção retornado pelo LLM em 'conteudo'/'referencia'."""
+    if not tipo:
+        return "conteudo"
+    tipo_nulo = tipo.strip().lower().replace("í", "i").replace("ê", "e")
+    if tipo_nulo.startswith("conte"):
+        return "conteudo"
+    if tipo_nulo.startswith("refer"):
+        return "referencia"
+    return tipo_nulo
+
+
 def _resumir_lote(
     secoes: list[str],
     provedor: LLMProvider | None = None,
 ) -> dict[int, tuple[str, str]]:
-    p = provedor or provedor_padrao
+    p = usar_provedor(provedor)
     blocos = "\n\n".join(
         f"SECAO {indice + 1}\n{texto}" for indice, texto in enumerate(secoes)
     )

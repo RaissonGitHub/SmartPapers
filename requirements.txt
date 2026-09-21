@@ -42,3 +42,4 @@ tzdata==2026.3
 urllib3==2.7.0
 django-cors-headers==4.7.0
 ollama
+google-genai==2.24.0

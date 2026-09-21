@@ -28,6 +28,9 @@ export default function Index({ usuario, onSair }) {
   const [arquivo, setArquivo] = useState(null);
   const [sidebarAberta, setSidebarAberta] = useState(false);
   const [sidebarRecolhida, setSidebarRecolhida] = useState(false);
+  const [provedor, setProvedor] = useState("gemini");
+  const [apiKey, setApiKey] = useState("");
+  const [modelo, setModelo] = useState("");
   return (
     <>
       <div className="flex h-screen flex-col overflow-hidden">
@@ -85,6 +88,12 @@ export default function Index({ usuario, onSair }) {
               carregando={carregando}
               arquivo={arquivo}
               onArquivoChange={setArquivo}
+              provedor={provedor}
+              onProvedorChange={setProvedor}
+              apiKey={apiKey}
+              onApiKeyChange={setApiKey}
+              modelo={modelo}
+              onModeloChange={setModelo}
             />
           </div>
         </div>

@@ -1,10 +1,15 @@
 import { useMemo, useState } from "react";
 import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
+import CheckIcon from "@mui/icons-material/Check";
+import ModelTrainingIcon from "@mui/icons-material/ModelTraining";
 import QuestionAnswerIcon from "@mui/icons-material/QuestionAnswer";
 import SearchIcon from "@mui/icons-material/Search";
+import SmartToyIcon from "@mui/icons-material/SmartToy";
+import TuneIcon from "@mui/icons-material/Tune";
 import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
 import MenuItem from "@mui/material/MenuItem";
 import Menu from "@mui/material/Menu";
+import Popover from "@mui/material/Popover";
 import Tooltip from "@mui/material/Tooltip";
 import AttachFileIcon from "@mui/icons-material/AttachFile";
 import {
@@ -16,6 +21,7 @@ import {
   ChatComposerToolbar,
 } from "@mui/x-chat";
 import { ChatProvider } from "@mui/x-chat/headless";
+import SeletorModelo from "./SeletorModelo";
 const MODOS_REQUISICAO = {
   auto: {
     icone: AutoAwesomeIcon,
@@ -43,17 +49,44 @@ export default function InputChat({
   carregando,
   arquivo = null,
   onArquivoChange,
+  provedor = "gemini",
+  apiKey = "",
+  modelo = "",
+  onProvedorChange,
+  onApiKeyChange,
+  onModeloChange,
 }) {
   const [modoRequisicao, setModoRequisicao] = useState("auto");
   const [anchorElRequisicao, setAnchorElRequisicao] = useState(null);
+  const [anchorElModelo, setAnchorElModelo] = useState(null);
+  const [anchorElFuncoes, setAnchorElFuncoes] = useState(null);
 
   const modoAtivo = MODOS_REQUISICAO[modoRequisicao] ?? MODOS_REQUISICAO.auto;
   const IconeAtivo = modoAtivo.icone;
 
+  const ModeloIcone = provedor === "ollama" ? SmartToyIcon : ModelTrainingIcon;
+  const rotuloModelo =
+    provedor === "ollama"
+      ? "Ollama"
+      : modelo.trim()
+        ? modelo.trim().replace(/^models\//, "")
+        : "Gemini";
+
   const selecionarModo = (modo) => {
     setModoRequisicao(modo);
     setAnchorElRequisicao(null);
+    setAnchorElFuncoes(null);
   };
+
+  const opcoesModelo = useMemo(() => {
+    if (provedor === "ollama") return { provider: "ollama" };
+    const chave = apiKey.trim();
+    const modeloSelecionado = modelo.trim();
+    const extra = {};
+    if (chave) extra.api_key = chave;
+    if (modeloSelecionado) extra.modelo = modeloSelecionado;
+    return { provider: "gemini", ...extra };
+  }, [provedor, apiKey, modelo]);
 
   const adapter = useMemo(
     () => ({
@@ -66,7 +99,7 @@ export default function InputChat({
         const anexo = attachments?.[0]?.file ?? arquivo ?? null;
 
         onArquivoChange?.(null);
-        await onEnviar?.(texto, anexo, modoAtivo.requisicao);
+        await onEnviar?.(texto, anexo, modoAtivo.requisicao, opcoesModelo);
 
         return new ReadableStream({
           start(controller) {
@@ -75,7 +108,7 @@ export default function InputChat({
         });
       },
     }),
-    [arquivo, modoAtivo.requisicao, onArquivoChange, onEnviar],
+    [arquivo, modoAtivo.requisicao, onArquivoChange, onEnviar, opcoesModelo],
   );
 
   return (
@@ -130,6 +163,18 @@ export default function InputChat({
               <AttachFileIcon sx={{ color: "white" }} />
             </ChatComposerAttachButton>
           </Tooltip>
+          <Tooltip title="Opções (busca, resposta e modelo)">
+            <button
+              type="button"
+              onClick={(e) => setAnchorElFuncoes(e.currentTarget)}
+              aria-label="Opções de busca, resposta e modelo"
+              aria-expanded={Boolean(anchorElFuncoes)}
+              aria-haspopup="dialog"
+              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-borda bg-borda text-white transition hover:cursor-pointer hover:bg-[#12477c] md:hidden"
+            >
+              <TuneIcon sx={{ fontSize: 20 }} />
+            </button>
+          </Tooltip>
           <Tooltip
             title={`${modoAtivo.rotulo}: ${modoAtivo.descricao} (clique para mudar)`}
           >
@@ -141,8 +186,8 @@ export default function InputChat({
               aria-haspopup="menu"
               className={
                 modoRequisicao === "auto"
-                  ? "h-10 w-10 shrink-0 rounded-full border border-borda bg-borda text-white transition hover:cursor-pointer hover:bg-[#12477c]"
-                  : "h-10 w-10 shrink-0 rounded-full border border-[#4f9cf9] bg-[#12477c] text-white transition hover:cursor-pointer hover:bg-[#0e3a63]"
+                  ? "hidden h-10 w-10 shrink-0 items-center justify-center rounded-full border border-borda bg-borda text-white transition hover:cursor-pointer hover:bg-[#12477c] md:flex"
+                  : "hidden h-10 w-10 shrink-0 items-center justify-center rounded-full border border-[#4f9cf9] bg-[#12477c] text-white transition hover:cursor-pointer hover:bg-[#0e3a63] md:flex"
               }
             >
               <IconeAtivo />
@@ -185,6 +230,110 @@ export default function InputChat({
               );
             })}
           </Menu>
+          <Tooltip title={`Modelo: ${rotuloModelo} (clique para mudar)`}>
+            <button
+              type="button"
+              onClick={(e) => setAnchorElModelo(e.currentTarget)}
+              aria-label={`Modelo selecionado: ${rotuloModelo}`}
+              aria-expanded={Boolean(anchorElModelo)}
+              aria-haspopup="dialog"
+              className="hidden h-11 shrink-0 items-center gap-2 rounded-full border border-[#4f9cf9]/80 bg-[#12477c] px-4 text-sm text-white transition hover:cursor-pointer hover:bg-[#0e3a63] md:flex"
+            >
+              <ModeloIcone sx={{ fontSize: 20 }} />
+              <span className="hidden max-w-[12rem] truncate md:inline">
+                {rotuloModelo}
+              </span>
+            </button>
+          </Tooltip>
+          <Popover
+            open={Boolean(anchorElModelo)}
+            anchorEl={anchorElModelo}
+            onClose={() => setAnchorElModelo(null)}
+            anchorOrigin={{ vertical: "top", horizontal: "left" }}
+            transformOrigin={{ vertical: "bottom", horizontal: "left" }}
+            slotProps={{
+              paper: {
+                sx: {
+                  backgroundColor: "#1f1f1f",
+                  color: "#e5e7eb",
+                  border: "1px solid #3a3a3a",
+                  borderRadius: 2,
+                },
+              },
+            }}
+          >
+            <div className="w-[min(90vw,22rem)]">
+              <SeletorModelo
+                provedor={provedor}
+                onProvedorChange={onProvedorChange}
+                apiKey={apiKey}
+                onApiKeyChange={onApiKeyChange}
+                modelo={modelo}
+                onModeloChange={onModeloChange}
+                className="gap-1.5 px-3 py-2.5"
+              />
+            </div>
+          </Popover>
+          <Popover
+            open={Boolean(anchorElFuncoes)}
+            anchorEl={anchorElFuncoes}
+            onClose={() => setAnchorElFuncoes(null)}
+            anchorOrigin={{ vertical: "top", horizontal: "right" }}
+            transformOrigin={{ vertical: "bottom", horizontal: "right" }}
+            slotProps={{
+              paper: {
+                sx: {
+                  backgroundColor: "#1f1f1f",
+                  color: "#e5e7eb",
+                  border: "1px solid #3a3a3a",
+                  borderRadius: 2,
+                },
+              },
+            }}
+          >
+            <div className="w-[min(90vw,20rem)]">
+              <div className="flex flex-col gap-1 px-2.5 pt-2.5">
+                <span className="px-1.5 text-[11px] uppercase tracking-wide text-gray-400">
+                  Tipo de resposta
+                </span>
+                {Object.entries(MODOS_REQUISICAO).map(([chave, modo]) => {
+                  const ItemIcone = modo.icone;
+                  const ativo = chave === modoRequisicao;
+                  return (
+                    <button
+                      key={chave}
+                      type="button"
+                      onClick={() => selecionarModo(chave)}
+                      className={`flex items-center gap-2.5 rounded-lg px-2 py-1.5 text-left transition hover:cursor-pointer hover:bg-[#2e2e2e] ${ativo ? "bg-[#1e3a5f]" : ""}`}
+                    >
+                      <ItemIcone sx={{ fontSize: 18, color: "#4f9cf9" }} />
+                      <div className="flex min-w-0 flex-1 flex-col">
+                        <span className="text-sm text-[#e5e7eb]">
+                          {modo.rotulo}
+                        </span>
+                        <span className="truncate text-[11px] text-gray-400">
+                          {modo.descricao}
+                        </span>
+                      </div>
+                      {ativo && (
+                        <CheckIcon sx={{ fontSize: 18, color: "#4f9cf9" }} />
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="mx-2.5 my-2 h-px bg-[#3a3a3a]" />
+              <SeletorModelo
+                provedor={provedor}
+                onProvedorChange={onProvedorChange}
+                apiKey={apiKey}
+                onApiKeyChange={onApiKeyChange}
+                modelo={modelo}
+                onModeloChange={onModeloChange}
+                className="gap-1.5 px-3 pb-3"
+              />
+            </div>
+          </Popover>
           <ChatComposerTextArea
             aria-label="Mensagem"
             placeholder="Digite uma mensagem"

@@ -1,18 +1,56 @@
 from unittest.mock import patch
 
+from artigos.models.artigo import Artigo
 from django.contrib.auth.models import User
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase
 from rest_framework.test import APIClient
 
-from artigos.models.artigo import Artigo
 from chat.models import Mensagem, Sessao
-from chat.services.rag import _substituir_ancoras_por_titulo
+from chat.services.gemini_provider import GeminiProvider
+from chat.services.pdf_service import _parsear_resumo_secoes
+from chat.services.providers import OllamaProvider
+from chat.services.rag import (
+    _normalizar_anos_tool_call,
+    _substituir_ancoras_por_titulo,
+    selecionar_pdf,
+)
+
+
+class NormalizacaoAnosToolCallTestCase(TestCase):
+    def test_intervalo_fora_da_base_usa_janela_disponivel(self):
+        args = {"ano_inicio": 2010, "ano_fim": 2015}
+
+        _normalizar_anos_tool_call(args)
+
+        self.assertEqual(args["ano_inicio"], 2020)
+        self.assertEqual(args["ano_fim"], 2026)
+
+    def test_intervalo_valido_e_preservado(self):
+        args = {"ano_inicio": 2021, "ano_fim": 2025}
+
+        _normalizar_anos_tool_call(args)
+
+        self.assertEqual(args, {"ano_inicio": 2021, "ano_fim": 2025})
+
+
+class OllamaTimeoutTestCase(TestCase):
+    @patch("ollama.Client")
+    def test_timeout_e_configurado_no_cliente_http(self, mock_client):
+        mock_client.return_value.chat.return_value.message.content = "resposta"
+        provedor = OllamaProvider(modelo="teste")
+
+        provedor.chat_simple([])
+
+        self.assertEqual(mock_client.call_args.kwargs["timeout"], 120)
+        self.assertNotIn("timeout", mock_client.return_value.chat.call_args.kwargs)
 
 
 class SubstituicaoAncoraLinksTestCase(TestCase):
     def test_substitui_texto_visivel_pelo_titulo(self):
-        resposta = "Veja [clique aqui](https://doi.org/10.1234) e [x](https://outro.org)"
+        resposta = (
+            "Veja [clique aqui](https://doi.org/10.1234) e [x](https://outro.org)"
+        )
         artigos = [
             {
                 "titulo": "Machine Learning Aplicado",
@@ -44,9 +82,7 @@ class SubstituicaoAncoraLinksTestCase(TestCase):
 class SessaoViewsTestCase(TestCase):
     def setUp(self):
         self.client = APIClient()
-        self.usuario = User.objects.create_user(
-            username="teste", password="senha123"
-        )
+        self.usuario = User.objects.create_user(username="teste", password="senha123")
         self.client.force_authenticate(user=self.usuario)
 
     def test_sessoes_exigem_autenticacao(self):
@@ -114,9 +150,7 @@ class SessaoViewsTestCase(TestCase):
 class AgentePersistenciaTestCase(TestCase):
     def setUp(self):
         self.client = APIClient()
-        self.usuario = User.objects.create_user(
-            username="comum", password="senha123"
-        )
+        self.usuario = User.objects.create_user(username="comum", password="senha123")
         self.client.force_authenticate(user=self.usuario)
 
     @patch(
@@ -244,9 +278,7 @@ class AgentePersistenciaTestCase(TestCase):
 class AgentePdfTestCase(TestCase):
     def setUp(self):
         self.client = APIClient()
-        self.usuario = User.objects.create_user(
-            username="pdf", password="senha123"
-        )
+        self.usuario = User.objects.create_user(username="pdf", password="senha123")
         self.client.force_authenticate(user=self.usuario)
         self.arquivo = SimpleUploadedFile(
             "artigo.pdf", b"%PDF-1.4 dados-falsos", content_type="application/pdf"
@@ -262,9 +294,7 @@ class AgentePdfTestCase(TestCase):
     @patch("chat.services.conversa_service.processar_mensagem_usuario")
     @patch("chat.services.conversa_service.processar_pdf")
     def test_pdf_persiste_nome_e_secoes(self, mock_pdf, mock_rag):
-        secoes = [
-            {"indice": 1, "resumo": "Metodologia", "texto": "Texto da seção."}
-        ]
+        secoes = [{"indice": 1, "resumo": "Metodologia", "texto": "Texto da seção."}]
         mock_pdf.return_value = secoes
         mock_rag.return_value = self._mensagem_modelo_padrao()
 
@@ -445,3 +475,190 @@ class AutenticacaoTestCase(TestCase):
         )
         self.assertEqual(com.status_code, 201)
         self.assertEqual(Sessao.objects.get(pk=com.data["id"]).titulo, "Com csrf")
+
+
+class GeminiMultiturnTestCase(TestCase):
+    def test_modelo_single_turn_recebe_apenas_ultimo_turno(self):
+        from unittest.mock import MagicMock
+
+        from google.genai import errors as erros_genai
+
+        provedor = GeminiProvider(modelo="antigravity-preview-05-2026", api_key="x")
+        client = MagicMock()
+        provedor._client = client
+
+        erro = erros_genai.ClientError(
+            400,
+            {
+                "error": {
+                    "code": 400,
+                    "message": "Multiturn chat is not enabled for "
+                    "models/antigravity-preview-05-2026",
+                    "status": "INVALID_ARGUMENT",
+                }
+            },
+        )
+        client.models.generate_content.side_effect = [erro, MagicMock()]
+
+        provedor.chat(
+            [
+                {"role": "system", "content": "instrucao"},
+                {"role": "user", "content": "primeira pergunta"},
+                {"role": "assistant", "content": "primeira resposta"},
+                {"role": "user", "content": "segunda pergunta"},
+            ],
+            tools=[lambda: None],
+        )
+
+        chamadas = client.models.generate_content.call_args_list
+        self.assertEqual(len(chamadas), 2)
+        conteudos = chamadas[1].kwargs["contents"]
+        self.assertEqual(len(conteudos), 1)
+        self.assertEqual(
+            conteudos[0].parts[0].text,
+            "segunda pergunta",
+        )
+
+    @patch("google.genai.Client")
+    def test_listar_modelos_filtra_preview_single_turn(self, mock_client):
+        from chat.services.gemini_provider import listar_modelos_gemini
+
+        def fake_modelo(nome, display=None):
+            return type(
+                "FakeModel",
+                (),
+                {
+                    "name": f"models/{nome}",
+                    "display_name": display or nome,
+                    "supported_actions": [
+                        "generateContent",
+                        "GenerateContent",
+                    ],
+                },
+            )()
+
+        mock_client.return_value.models.list.return_value = [
+            fake_modelo("gemini-2.5-flash", "Gemini 2.5 Flash"),
+            fake_modelo("antigravity-preview-05-2026", "Antigravity Preview"),
+            fake_modelo("gemini-3.8-flash", "Gemini 3.8 Flash"),
+        ]
+
+        modelos = listar_modelos_gemini("CHAVE-X")
+
+        nomes = [m["name"] for m in modelos]
+        self.assertNotIn("antigravity-preview-05-2026", nomes)
+        self.assertNotIn("gemini-2.5-flash", nomes)
+        self.assertIn("gemini-3.8-flash", nomes)
+        self.assertEqual(len(modelos), 1)
+
+
+class AgenteErroProvedorTestCase(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.usuario = User.objects.create_user(username="erro", password="senha123")
+        self.client.force_authenticate(user=self.usuario)
+
+    @patch("chat.views.agent_chat.processar_e_salvar")
+    def test_erro_da_api_gemini_vira_502_com_mensagem_limpa(self, mock_processar):
+        from google.genai import errors as erros_genai
+
+        mock_processar.side_effect = erros_genai.ClientError(
+            400,
+            {
+                "error": {
+                    "code": 400,
+                    "message": "API key not valid.",
+                    "status": "INVALID_ARGUMENT",
+                }
+            },
+        )
+
+        resposta = self.client.post(
+            "/chat/agente/",
+            {
+                "mensagem": "oi",
+                "provider": "gemini",
+                "api_key": "CHAVE-SECRETA",
+                "modelo": "gemini-3.8-flash",
+            },
+            format="json",
+        )
+
+        self.assertEqual(resposta.status_code, 502)
+        self.assertIn("Erro na chamada ao Gemini", resposta.data["erro"])
+        self.assertNotIn("CHAVE-SECRETA", resposta.data["erro"])
+
+
+class PdfRobustezFormatacaoTestCase(TestCase):
+    def test_parsear_resumo_trata_fences_negrito_e_acento(self):
+        resposta = (
+            "```json\n"
+            "Resumo das seções:\n"
+            "SECAO 1 | **conteúdo** | Introduz o tema e define o escopo da pesquisa.\n"
+            "SECAO 2 | conteudo | Discute a metodologia aplicada na coleta de dados.\n"
+            "SECAO 4 | referência | Cita estudos anteriores sobre o tema.\n"
+            "```\n"
+        )
+
+        resultado = _parsear_resumo_secoes(resposta)
+
+        self.assertEqual(
+            resultado[1], ("conteudo", "Introduz o tema e define o escopo da pesquisa.")
+        )
+        self.assertEqual(
+            resultado[2], ("conteudo", "Discute a metodologia aplicada na coleta de dados.")
+        )
+        self.assertEqual(
+            resultado[4], ("referencia", "Cita estudos anteriores sobre o tema.")
+        )
+        self.assertNotIn(3, resultado)
+
+    def test_selecionar_pdf_ignora_json_fenced_com_texto(self):
+        from unittest.mock import Mock
+
+        provedor = Mock()
+        provedor.chat_simple.return_value = (
+            'O documento mais relevante é o seguinte:\n'
+            '```json\n{"pdf_id": 2}\n```\n'
+        )
+        pdfs = [
+            {"id": 1, "nome": "artigo a.pdf", "secoes": [{"indice": 1}]},
+            {"id": 2, "nome": "artigo b.pdf", "secoes": [{"indice": 1}, {"indice": 2}]},
+        ]
+
+        pdf_id, secoes = selecionar_pdf(pdfs, "explique esta nota", provedor)
+
+        self.assertEqual(pdf_id, 2)
+        self.assertEqual(len(secoes), 2)
+
+    def test_selecionar_pdf_resposta_invalida_cai_no_primeiro_pdf(self):
+        from unittest.mock import Mock
+
+        provedor = Mock()
+        provedor.chat_simple.return_value = (
+            "Não sei qual documento escolher, todos parecem relevantes."
+        )
+        pdfs = [
+            {"id": 1, "nome": "artigo a.pdf", "secoes": [{"indice": 1}]},
+            {"id": 2, "nome": "artigo b.pdf", "secoes": [{"indice": 1}]},
+        ]
+
+        pdf_id, secoes = selecionar_pdf(pdfs, "explique este pdf", provedor)
+
+        self.assertEqual(pdf_id, 1)
+        self.assertEqual(len(secoes), 1)
+
+    def test_selecionar_pdf_null_explicito_nao_forca_fallback(self):
+        from unittest.mock import Mock
+
+        provedor = Mock()
+        provedor.chat_simple.return_value = '{"pdf_id": null}'
+        pdfs = [
+            {"id": 1, "nome": "artigo a.pdf", "secoes": [{"indice": 1}]},
+            {"id": 2, "nome": "artigo b.pdf", "secoes": [{"indice": 1}]},
+        ]
+
+        pdf_id, secoes = selecionar_pdf(pdfs, "pergunta geral", provedor)
+
+        self.assertIsNone(pdf_id)
+        self.assertEqual(secoes, [])

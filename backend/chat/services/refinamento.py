@@ -14,7 +14,7 @@ Etapas que elevam a qualidade da recuperação vetorial:
 import os
 import re
 
-from .providers import LLMProvider, provedor_padrao
+from .providers import LLMProvider, usar_provedor
 
 MODELO_OLLAMA = os.getenv("MODELO_OLLAMA", "qwen3:8b")
 MARCADOR_ADERENTES = "ARTIGOS_ADERENTES"
@@ -65,7 +65,7 @@ Essa linha é um metadado e NÃO deve aparecer adaptada; escreva-a literalmente 
 
 
 def _resolver_provedor(provedor: LLMProvider | None = None) -> LLMProvider:
-    return provedor or provedor_padrao
+    return usar_provedor(provedor)
 
 
 def _limpar_pensamento(texto: str) -> str:
