@@ -8,6 +8,7 @@ import numpy as np
 
 from artigos.services.gerar_embedding_service import gerar_embedding_lote
 
+from .cancelamento import checar_cancelamento
 from .providers import LLMProvider, usar_provedor
 from .refinamento import _limpar_pensamento
 
@@ -95,6 +96,7 @@ def extrair_texto_pdf(arquivo) -> str:
     with pymupdf.open(stream=dados, filetype="pdf") as doc:
         paginas = []
         for pagina in doc:
+            checar_cancelamento()
             try:
                 texto = pagina.get_text("text") or ""
             except Exception:
@@ -193,6 +195,7 @@ def secoes_processadas(
 
     secoes_final = []
     for inicio in range(0, len(partes), TAMANHO_LOTE):
+        checar_cancelamento()
         lote = partes[inicio : inicio + TAMANHO_LOTE]
         resumos = _resumir_lote(lote, provedor)
         for indice_rel, texto_secao in enumerate(lote):

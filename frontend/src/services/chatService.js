@@ -9,42 +9,45 @@ export async function enviarMensagem({
   pdf = null,
   requisicao = null,
   provider = null,
-  api_key = null,
   modelo = null,
+  requisicao_id = null,
+  editar = false,
+  signal = null,
 }) {
+  const config = { timeout: 600000 };
+  if (signal) config.signal = signal;
   try {
     if (pdf) {
       const form = new FormData();
       form.append("mensagem", mensagem);
       if (requisicao) form.append("requisicao", requisicao);
       if (sessao_id) form.append("sessao_id", sessao_id);
+      if (requisicao_id) form.append("requisicao_id", requisicao_id);
+      if (editar) form.append("editar", "true");
       if (ano_inicio) form.append("ano_inicio", String(ano_inicio));
       if (ano_fim) form.append("ano_fim", String(ano_fim));
       if (area) form.append("area", area);
       if (provider) form.append("provider", provider);
-      if (api_key) form.append("api_key", api_key);
       if (modelo) form.append("modelo", modelo);
       form.append("pdf", pdf);
-      const { data } = await api.post("/chat/agente/", form, {
-        timeout: 600000,
-      });
+      const { data } = await api.post("/chat/agente/", form, config);
       return data;
     }
 
     const body = { mensagem };
     if (requisicao) body.requisicao = requisicao;
     if (sessao_id) body.sessao_id = sessao_id;
+    if (requisicao_id) body.requisicao_id = requisicao_id;
+    if (editar) body.editar = true;
     if (ano_inicio) body.ano_inicio = ano_inicio;
     if (ano_fim) body.ano_fim = ano_fim;
     if (area) body.area = area;
     if (provider) body.provider = provider;
-    if (api_key) body.api_key = api_key;
     if (modelo) body.modelo = modelo;
-    const { data } = await api.post("/chat/agente/", body, {
-      timeout: 600000,
-    });
+    const { data } = await api.post("/chat/agente/", body, config);
     return data;
   } catch (erro) {
+    if (erro?.code === "ERR_CANCELED") throw erro;
     const punicao =
       erro?.code === "ECONNABORTED"
         ? "A resposta está demorando mais que o esperado. Tente novamente."
@@ -55,6 +58,31 @@ export async function enviarMensagem({
       throw new Error(punicao, { cause: erro });
     }
     throw new Error(mensagemDeErro(erro, "Erro ao processar sua mensagem."), {
+      cause: erro,
+    });
+  }
+}
+
+export async function criarSessao(signal = null) {
+  const config = { timeout: 15000 };
+  if (signal) config.signal = signal;
+  try {
+    const { data } = await api.post("/chat/sessoes/", {}, config);
+    return data;
+  } catch (erro) {
+    if (erro?.code === "ERR_CANCELED") throw erro;
+    throw new Error(mensagemDeErro(erro, "Erro ao criar a sessão."), {
+      cause: erro,
+    });
+  }
+}
+
+export async function cancelarRequisicao(requisicao_id) {
+  try {
+    const { data } = await api.post("/chat/cancelar/", { requisicao_id });
+    return data;
+  } catch (erro) {
+    throw new Error(mensagemDeErro(erro, "Erro ao cancelar a requisição."), {
       cause: erro,
     });
   }

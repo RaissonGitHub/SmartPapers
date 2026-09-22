@@ -1,9 +1,10 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import ChatArea from "../components/ChatArea";
 import Drop from "../components/Drop";
 import InputChat from "../components/InputChat";
 import Nav from "../components/Nav";
 import Sidebar from "../components/Sidebar";
+import { obterPreferencias, salvarPreferencias } from "../services/authService";
 import useConversa from "../hooks/useConversa";
 
 export default function Index({ usuario, onSair }) {
@@ -12,6 +13,12 @@ export default function Index({ usuario, onSair }) {
     carregando,
     erro,
     enviar,
+    cancelar,
+    editarMensagem,
+    cancelarEdicao,
+    pedidoEdicao,
+    pedidoCancelamento,
+    idEmEdicao,
     sessoes,
     carregandoSessoes,
     carregandoSessao,
@@ -31,6 +38,45 @@ export default function Index({ usuario, onSair }) {
   const [provedor, setProvedor] = useState("gemini");
   const [apiKey, setApiKey] = useState("");
   const [modelo, setModelo] = useState("");
+  const ultimasPrefsRef = useRef(null);
+  const alteradoRef = useRef(false);
+  const prefsCarregadasRef = useRef(false);
+
+  useEffect(() => {
+    let cancelado = false;
+    obterPreferencias()
+      .then((prefs) => {
+        if (cancelado) return;
+        if (alteradoRef.current) return;
+        const carregadas = {
+          provider: prefs?.provider ?? "gemini",
+          api_key: prefs?.api_key ?? "",
+          modelo: prefs?.modelo ?? "",
+        };
+        ultimasPrefsRef.current = carregadas;
+        setProvedor(carregadas.provider);
+        setApiKey(carregadas.api_key);
+        setModelo(carregadas.modelo);
+        prefsCarregadasRef.current = true;
+      })
+      .catch(() => {
+        prefsCarregadasRef.current = true;
+      });
+    return () => {
+      cancelado = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    const atuais = { provider: provedor, api_key: apiKey, modelo };
+    if (!prefsCarregadasRef.current) return;
+    if (JSON.stringify(atuais) === JSON.stringify(ultimasPrefsRef.current)) return;
+    alteradoRef.current = true;
+    const id = setTimeout(() => {
+      salvarPreferencias(atuais).catch(() => {});
+    }, 400);
+    return () => clearTimeout(id);
+  }, [provedor, apiKey, modelo]);
   return (
     <>
       <div className="flex h-screen flex-col overflow-hidden">
@@ -75,6 +121,9 @@ export default function Index({ usuario, onSair }) {
                 className="min-h-0 w-full flex-1"
                 mensagens={mensagens}
                 carregando={carregando}
+                onEditar={editarMensagem}
+                onCancelarEdicao={cancelarEdicao}
+                idEmEdicao={idEmEdicao}
               />
             )}
             {erro && (
@@ -85,6 +134,7 @@ export default function Index({ usuario, onSair }) {
             <InputChat
               className="w-full"
               onEnviar={enviar}
+              onCancel={cancelar}
               carregando={carregando}
               arquivo={arquivo}
               onArquivoChange={setArquivo}
@@ -94,6 +144,9 @@ export default function Index({ usuario, onSair }) {
               onApiKeyChange={setApiKey}
               modelo={modelo}
               onModeloChange={setModelo}
+              pedidoEdicao={pedidoEdicao}
+              pedidoCancelamento={pedidoCancelamento}
+              onCancelarEdicao={cancelarEdicao}
             />
           </div>
         </div>

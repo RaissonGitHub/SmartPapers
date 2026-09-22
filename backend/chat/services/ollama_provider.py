@@ -9,6 +9,7 @@ from collections.abc import Callable
 from typing import Any
 
 from .base import LLMProvider
+from .cancelamento import checar_cancelamento
 
 
 class OllamaProvider(LLMProvider):
@@ -41,6 +42,7 @@ class OllamaProvider(LLMProvider):
         tools: list[Callable] | None = None,
         **kwargs,
     ) -> Any:
+        checar_cancelamento()
         topo, options = self._split_kwargs(kwargs)
         options.setdefault("num_ctx", self.num_ctx)
         return self._cliente.chat(
@@ -56,6 +58,7 @@ class OllamaProvider(LLMProvider):
         messages: list[dict],
         **kwargs,
     ) -> str:
+        checar_cancelamento()
         topo, options = self._split_kwargs(kwargs)
         options.setdefault("num_ctx", self.num_ctx)
         resposta = self._cliente.chat(

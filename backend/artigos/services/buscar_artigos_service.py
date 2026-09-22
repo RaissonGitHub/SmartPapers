@@ -1,10 +1,40 @@
 import os
+import threading
+import time
 
 from pgvector.django import CosineDistance
 
 from ..models.artigo import Artigo
 
 SIMILARIDADE_MIN = float(os.getenv("SIMILARIDADE_MIN", "0"))
+AREAS_CACHE_TTL = int(os.getenv("AREAS_CACHE_TTL", "300"))
+
+_areas_cache: tuple[str, ...] | None = None
+_areas_cache_criacao = 0.0
+_areas_cache_lock = threading.Lock()
+
+
+def _areas_existentes() -> tuple[str, ...]:
+    """Devolve as áreas da base, com cache de curta duração (TTL)."""
+    global _areas_cache, _areas_cache_criacao
+    agora = time.time()
+    if _areas_cache is not None and agora - _areas_cache_criacao < AREAS_CACHE_TTL:
+        return _areas_cache
+
+    with _areas_cache_lock:
+        if (
+            _areas_cache is not None
+            and agora - _areas_cache_criacao < AREAS_CACHE_TTL
+        ):
+            return _areas_cache
+        areas = tuple(
+            Artigo.objects.exclude(area_conhecimento="")
+            .values_list("area_conhecimento", flat=True)
+            .distinct()
+        )
+        _areas_cache = areas
+        _areas_cache_criacao = time.time()
+        return areas
 
 
 def _normalizar_area_filtro(area: str) -> str | None:
@@ -18,11 +48,7 @@ def _normalizar_area_filtro(area: str) -> str | None:
     if not area or not area.strip():
         return None
     candidata = area.strip().lower()
-    areas_existentes = (
-        Artigo.objects.exclude(area_conhecimento="")
-        .values_list("area_conhecimento", flat=True)
-        .distinct()
-    )
+    areas_existentes = _areas_existentes()
     for existente in areas_existentes:
         ex = existente.lower()
         if candidata in ex or ex in candidata:

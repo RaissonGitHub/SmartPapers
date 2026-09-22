@@ -29,6 +29,8 @@ class ListarModelosView(APIView):
     A chave é usada apenas nesta requisição e não é persistida em nenhum lugar.
     """
 
+    throttle_scope = "modelos"
+
     def post(self, request):
         api_key = (request.data.get("api_key") or "").strip()
         if not api_key:

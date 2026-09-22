@@ -247,7 +247,8 @@ export default function SeletorModelo({
       </FormControl>
       {/* Nota de privacidade */}
         <span className="w-full text-[11px] leading-4 text-gray-500">
-          A chave fica apenas na memória e é usada só nesta conversa.
+          A escolha fica salva na sua sessão de login e a chave é usada apenas
+          para chamar o Gemini.
         </span>
         </>
       )}

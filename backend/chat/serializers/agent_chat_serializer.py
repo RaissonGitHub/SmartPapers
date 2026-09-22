@@ -57,3 +57,9 @@ class AgentChatRequestSerializer(serializers.Serializer):
         allow_null=True,
         help_text="Arquivo PDF anexado (opcional). Sem mensagem, o envio é rejeitado.",
     )
+    editar = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="True quando a mensagem é uma edição da última do usuário: o "
+        "último turno (usuário + modelo) é substituído pela nova troca.",
+    )

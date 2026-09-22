@@ -4,14 +4,11 @@ import re
 from concurrent.futures import ThreadPoolExecutor
 
 from artigos.services.buscar_artigos_service import buscar_artigos
-from artigos.services.gerar_embedding_service import gerar_embedding
+from artigos.services.gerar_embedding_service import gerar_embedding_lote
 
+from .cancelamento import RequisicaoCancelada, checar_cancelamento
 from .providers import LLMProvider, usar_provedor
-from .refinamento import (
-    classificar_necessidade_busca,
-    reformular_busca,
-    rerank_por_aderencia,
-)
+from .refinamento import rerank_por_aderencia
 
 PDF_SECOES_BUSCA_MAX = int(os.getenv("PDF_SECOES_BUSCA_MAX", "4"))
 ANO_MINIMO_ARTIGOS = 2020
@@ -178,15 +175,6 @@ def _mensagem_pdf_catalogo(pdf_catalogo) -> list[dict]:
     ]
 
 
-def _requer_busca(mensagem: str, provedor: LLMProvider | None = None) -> bool:
-    """Pergunta ao LLM se a mensagem exige busca de artigos."""
-    p = usar_provedor(provedor)
-    print(f"[RAG] Verificando se a mensagem precisa de busca: {mensagem[:120]}...")
-    decisao = classificar_necessidade_busca(mensagem, provedor=p)
-    print(f"[RAG] Decisão de busca: {decisao}")
-    return True if decisao is None else decisao
-
-
 def _mesclar_artigos_por_id(*listas: list[dict]) -> list[dict]:
     """Mantém um único artigo por id, preservando a primeira ocorrência."""
     unicos = {}
@@ -215,12 +203,11 @@ def _buscar_dupla_artigos(
     `medicao` guarda consultas usadas, candidate set (ids + similaridade
     antes do rerank) e o Top-K final (id + similaridade vetorial original).
     """
-    candidatos_por_lote = max(top_n * 3, 30)
     pool_rerank = max(top_n + 5, 15)
+    candidatos_por_lote = pool_rerank
     p = usar_provedor(provedor)
+    checar_cancelamento()
     print(f"[RAG] Busca inicial: {search_title_en}")
-    texto_reformulado = reformular_busca(texto_original_usuario, provedor=p)
-    print(f"[RAG] Texto reformulado para busca: {texto_reformulado}")
 
     consultas_pdf = [c for c in (consultas_pdf or []) if c and c.strip()][
         :PDF_SECOES_BUSCA_MAX
@@ -228,11 +215,31 @@ def _buscar_dupla_artigos(
     if consultas_pdf:
         print(f"[RAG] Usando {len(consultas_pdf)} seções do PDF como consultas.")
 
-    def executar_busca(texto: str):
+    consultas = [c for c in (search_title_en, texto_original_usuario) if c and c.strip()]
+    consultas += consultas_pdf
+
+    try:
+        embeddings = gerar_embedding_lote(consultas)
+        itens = list(zip(consultas, embeddings))
+    except RequisicaoCancelada:
+        raise
+    except Exception as exc:
+        print(f"[RAG] Falha no embedding em lote ({exc}); tentando individualmente.")
+        itens = []
+        for texto in consultas:
+            try:
+                itens.append((texto, gerar_embedding_lote([texto])[0]))
+            except RequisicaoCancelada:
+                raise
+            except Exception as exc2:
+                print(f"[RAG] Falha no embedding de '{texto[:80]}': {exc2}")
+
+    def executar_busca(item):
+        texto, embedding = item
         try:
-            print(f"[RAG] Executando busca vetorial para: {texto}")
+            print(f"[RAG] Executando busca vetorial para: {texto[:80]}...")
             return buscar_artigos(
-                embedding=gerar_embedding(titulo=texto),
+                embedding=embedding,
                 top_n=candidatos_por_lote,
                 ano_inicio=ano_inicio,
                 ano_fim=ano_fim,
@@ -242,10 +249,11 @@ def _buscar_dupla_artigos(
             print(f"[RAG] Falha na busca para '{texto[:80]}': {exc}")
             return []
 
-    consultas = [search_title_en, texto_reformulado, texto_original_usuario]
-    consultas += consultas_pdf
-    with ThreadPoolExecutor(max_workers=min(4, len(consultas))) as executor:
-        resultados = list(executor.map(executar_busca, consultas))
+    if itens:
+        with ThreadPoolExecutor(max_workers=min(4, len(itens))) as executor:
+            resultados = list(executor.map(executar_busca, itens))
+    else:
+        resultados = []
 
     print(f"[RAG] Resultados brutos: {len(resultados)} execuções de busca")
     pool = _mesclar_artigos_por_id(*resultados)[:pool_rerank]
@@ -254,6 +262,7 @@ def _buscar_dupla_artigos(
         ",".join(f"{a.get('id')}({a.get('similaridade')})" for a in pool),
     )
     print(f"[RAG] Pool para rerank: {len(pool)} artigos")
+    checar_cancelamento()
     artigos_final = rerank_por_aderencia(
         texto_original_usuario, pool, top_n, provedor=p
     )
@@ -364,6 +373,7 @@ def _resposta_direta(
 ) -> dict:
     """Resposta conceitual geral: sem busca no banco."""
     p = usar_provedor(provedor)
+    checar_cancelamento()
     messages = [{"role": "system", "content": SYSTEM_PROMPT}]
     messages.extend(_mensagem_pdf_catalogo(pdf_catalogo))
     messages.extend(_mensagens_pdf_contexto(pdf_secoes))
@@ -389,6 +399,7 @@ def processar_mensagem_usuario(
 ) -> dict:
     p = usar_provedor(provedor)
     pdf_secoes = pdf_secoes or []
+    checar_cancelamento()
     print(f"[RAG] Iniciando processamento da mensagem: {mensagem[:120]}...")
 
     def pesquisar_base_artigos(
@@ -411,18 +422,11 @@ def processar_mensagem_usuario(
             consultas_pdf=[s.get("texto") or s.get("resumo") or "" for s in pdf_secoes],
         )
 
-    # Override explícito da intenção: sem o campo, o modelo decide.
+    # Override explícito da intenção: sem o campo, o modelo decide no tool-call.
     if requisicao == "busca":
-        requer_busca = True
         print("[RAG] Requisição explícita de busca.")
     elif requisicao == "resposta":
-        requer_busca = False
         print("[RAG] Requisição explícita de resposta direta.")
-    else:
-        requer_busca = _requer_busca(mensagem, provedor=p)
-
-    if not requer_busca:
-        print("[RAG] Mensagem resolvida sem busca no banco.")
         return _resposta_direta(
             mensagem,
             provedor=p,

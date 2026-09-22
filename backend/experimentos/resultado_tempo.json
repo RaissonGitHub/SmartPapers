@@ -1,0 +1,104 @@
+{
+  "meta_segundos": 2.0,
+  "base_com_embedding": 5798,
+  "iteracoes_por_consulta": 15,
+  "tempo_embedding_por_consulta_segundos": 0.3883,
+  "busca_completa": {
+    "media_geral": 0.0057,
+    "p95_maximo": 0.0078,
+    "dentro_da_meta": true
+  },
+  "consultas": [
+    {
+      "consulta": "Machine Learning for Personalized Recommendation of Scientific Papers",
+      "iteracoes": 15,
+      "tempo_embedding_por_consulta": 0.3883,
+      "tempo_db_segundos": {
+        "min": 0.0028,
+        "media": 0.0036,
+        "p95": 0.0043,
+        "max": 0.0047
+      },
+      "tempo_busca_completa_segundos": {
+        "min": 0.0048,
+        "media": 0.0057,
+        "p95": 0.0068,
+        "max": 0.0077,
+        "dentro_meta": true
+      }
+    },
+    {
+      "consulta": "Graph Based Approaches for Scientific Article Recommendation",
+      "iteracoes": 15,
+      "tempo_embedding_por_consulta": 0.3883,
+      "tempo_db_segundos": {
+        "min": 0.0028,
+        "media": 0.0043,
+        "p95": 0.0079,
+        "max": 0.0159
+      },
+      "tempo_busca_completa_segundos": {
+        "min": 0.0051,
+        "media": 0.0056,
+        "p95": 0.0063,
+        "max": 0.0065,
+        "dentro_meta": true
+      }
+    },
+    {
+      "consulta": "Large Language Models in Information Retrieval",
+      "iteracoes": 15,
+      "tempo_embedding_por_consulta": 0.3883,
+      "tempo_db_segundos": {
+        "min": 0.0027,
+        "media": 0.0041,
+        "p95": 0.0075,
+        "max": 0.0159
+      },
+      "tempo_busca_completa_segundos": {
+        "min": 0.0049,
+        "media": 0.0058,
+        "p95": 0.0078,
+        "max": 0.0085,
+        "dentro_meta": true
+      }
+    },
+    {
+      "consulta": "Collaborative Filtering Techniques in Recommender Systems",
+      "iteracoes": 15,
+      "tempo_embedding_por_consulta": 0.3883,
+      "tempo_db_segundos": {
+        "min": 0.003,
+        "media": 0.004,
+        "p95": 0.0066,
+        "max": 0.0117
+      },
+      "tempo_busca_completa_segundos": {
+        "min": 0.0046,
+        "media": 0.0056,
+        "p95": 0.007,
+        "max": 0.0091,
+        "dentro_meta": true
+      }
+    },
+    {
+      "consulta": "Detection and Prevention of Face Spoofing Attacks in Biometric Systems",
+      "iteracoes": 15,
+      "tempo_embedding_por_consulta": 0.3883,
+      "tempo_db_segundos": {
+        "min": 0.003,
+        "media": 0.006,
+        "p95": 0.0152,
+        "max": 0.039
+      },
+      "tempo_busca_completa_segundos": {
+        "min": 0.0049,
+        "media": 0.0059,
+        "p95": 0.0073,
+        "max": 0.0098,
+        "dentro_meta": true
+      }
+    }
+  ],
+  "gerado_em": "2026-09-21T18:12:13"
+}

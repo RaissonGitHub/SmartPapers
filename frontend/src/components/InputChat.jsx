@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
 import CheckIcon from "@mui/icons-material/Check";
 import ModelTrainingIcon from "@mui/icons-material/ModelTraining";
@@ -7,6 +7,7 @@ import SearchIcon from "@mui/icons-material/Search";
 import SmartToyIcon from "@mui/icons-material/SmartToy";
 import TuneIcon from "@mui/icons-material/Tune";
 import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
+import StopIcon from "@mui/icons-material/Stop";
 import MenuItem from "@mui/material/MenuItem";
 import Menu from "@mui/material/Menu";
 import Popover from "@mui/material/Popover";
@@ -20,7 +21,7 @@ import {
   ChatComposerTextArea,
   ChatComposerToolbar,
 } from "@mui/x-chat";
-import { ChatProvider } from "@mui/x-chat/headless";
+import { ChatProvider, useChatComposer } from "@mui/x-chat/headless";
 import SeletorModelo from "./SeletorModelo";
 const MODOS_REQUISICAO = {
   auto: {
@@ -43,9 +44,25 @@ const MODOS_REQUISICAO = {
   },
 };
 
+function ControladorEdicao({ pedidoEdicao, pedidoCancelamento }) {
+  const { setValue } = useChatComposer();
+  useEffect(() => {
+    if (pedidoEdicao?.seq > 0) {
+      setValue(pedidoEdicao.texto ?? "");
+    }
+  }, [pedidoEdicao?.seq, pedidoEdicao?.texto, setValue]);
+  useEffect(() => {
+    if (pedidoCancelamento > 0) {
+      setValue("");
+    }
+  }, [pedidoCancelamento, setValue]);
+  return null;
+}
+
 export default function InputChat({
   className = "",
   onEnviar,
+  onCancel,
   carregando,
   arquivo = null,
   onArquivoChange,
@@ -55,6 +72,9 @@ export default function InputChat({
   onProvedorChange,
   onApiKeyChange,
   onModeloChange,
+  pedidoEdicao = null,
+  pedidoCancelamento = 0,
+  onCancelarEdicao,
 }) {
   const [modoRequisicao, setModoRequisicao] = useState("auto");
   const [anchorElRequisicao, setAnchorElRequisicao] = useState(null);
@@ -80,13 +100,11 @@ export default function InputChat({
 
   const opcoesModelo = useMemo(() => {
     if (provedor === "ollama") return { provider: "ollama" };
-    const chave = apiKey.trim();
     const modeloSelecionado = modelo.trim();
     const extra = {};
-    if (chave) extra.api_key = chave;
     if (modeloSelecionado) extra.modelo = modeloSelecionado;
     return { provider: "gemini", ...extra };
-  }, [provedor, apiKey, modelo]);
+  }, [provedor, modelo]);
 
   const adapter = useMemo(
     () => ({
@@ -135,6 +153,10 @@ export default function InputChat({
         initialActiveConversationId="smartpapers"
         initialConversations={[{ id: "smartpapers" }]}
       >
+        <ControladorEdicao
+          pedidoEdicao={pedidoEdicao}
+          pedidoCancelamento={pedidoCancelamento}
+        />
         <ChatComposer
           variant="compact"
           features={{
@@ -338,21 +360,37 @@ export default function InputChat({
             aria-label="Mensagem"
             placeholder="Digite uma mensagem"
             maxRows={5}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") onCancelarEdicao?.();
+            }}
             className="w-full resize-none overflow-x-hidden overflow-y-auto rounded-full border border-borda bg-transparent px-10 py-2 text-white outline-none transition-colors focus:border-blue-500"
           />
           <ChatComposerAttachmentList />
           <ChatComposerToolbar>
-            <Tooltip title="Enviar">
-              <span>
-                <ChatComposerSendButton
-                  aria-label="Enviar mensagem"
-                  disabled={carregando}
-                  className="h-10 w-10 shrink-0 rounded-full border-0 bg-[#1d60a3] text-white transition hover:cursor-pointer hover:bg-[#12477c] disabled:cursor-not-allowed disabled:bg-[#2a2a2a] disabled:opacity-50"
+            {carregando ? (
+              <Tooltip title="Cancelar">
+                <button
+                  type="button"
+                  onClick={onCancel}
+                  aria-label="Cancelar geração"
+                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border-0 bg-[#b34747] text-white transition hover:cursor-pointer hover:bg-[#8f3030]"
                 >
-                  <ArrowForwardIcon />
-                </ChatComposerSendButton>
-              </span>
-            </Tooltip>
+                  <StopIcon sx={{ fontSize: 20 }} />
+                </button>
+              </Tooltip>
+            ) : (
+              <Tooltip title="Enviar">
+                <span>
+                  <ChatComposerSendButton
+                    aria-label="Enviar mensagem"
+                    disabled={carregando}
+                    className="h-10 w-10 shrink-0 rounded-full border-0 bg-[#1d60a3] text-white transition hover:cursor-pointer hover:bg-[#12477c] disabled:cursor-not-allowed disabled:bg-[#2a2a2a] disabled:opacity-50"
+                  >
+                    <ArrowForwardIcon />
+                  </ChatComposerSendButton>
+                </span>
+              </Tooltip>
+            )}
           </ChatComposerToolbar>
         </ChatComposer>
       </ChatProvider>

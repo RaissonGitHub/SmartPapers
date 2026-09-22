@@ -4,6 +4,8 @@ import torch
 from adapters import AutoAdapterModel, Stack
 from transformers import AutoTokenizer
 
+from chat.services.cancelamento import checar_cancelamento
+
 _modelo = None
 _tokenizer = None
 _carregar_lock = threading.Lock()
@@ -52,6 +54,7 @@ def gerar_embedding_lote(textos: list[str]) -> list[list[float]]:
     """
     if not textos:
         return []
+    checar_cancelamento()
     _carregar()
     inputs = _tokenizer(
         textos,

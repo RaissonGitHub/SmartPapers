@@ -3,6 +3,12 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from ..serializers import AgentChatRequestSerializer
+from ..services.cancelamento import (
+    RequisicaoCancelada,
+    definir_requisicao,
+    limpar_requisicao,
+    novo_id,
+)
 from ..services.conversa_service import processar_e_salvar
 from ..services.providers import criar_provedor
 
@@ -47,6 +53,7 @@ class AgentChatView(APIView):
     """
 
     serializer_class = AgentChatRequestSerializer
+    throttle_scope = "agente"
 
     def get_serializer(self, *args, **kwargs):
         kwargs.setdefault("context", {"request": self.request, "view": self})
@@ -54,13 +61,33 @@ class AgentChatView(APIView):
 
     def post(self, request):
         mensagem = request.data.get("mensagem")
-        provider_name = request.data.get("provider", "").lower()
-        api_key = (request.data.get("api_key") or "").strip() or None
-        modelo = (request.data.get("modelo") or "").strip() or None
+        preferencias = request.session
+        provider_name = (
+            (request.data.get("provider") or "").strip()
+            or preferencias.get("pref_provider")
+            or ""
+        ).lower()
+        api_key = (
+            (request.data.get("api_key") or "").strip()
+            or preferencias.get("pref_api_key")
+            or None
+        )
+        modelo = (
+            (request.data.get("modelo") or "").strip()
+            or preferencias.get("pref_modelo")
+            or None
+        )
         requisicao = request.data.get("requisicao", "").lower()
         sessao_id = request.data.get("sessao_id")
         area = request.data.get("area", "") or ""
         pdf = request.data.get("pdf")
+        requisicao_id = (request.data.get("requisicao_id") or "").strip() or novo_id()
+        editar = str(request.data.get("editar") or "").strip().lower() in (
+            "1",
+            "true",
+            "sim",
+            "yes",
+        )
 
         try:
             ano_inicio = int(request.data.get("ano_inicio") or 0)
@@ -96,6 +123,7 @@ class AgentChatView(APIView):
                 provedor = criar_provedor("gemini", api_key=api_key, modelo=modelo)
             else:
                 provedor = None
+            definir_requisicao(requisicao_id)
             resultado = processar_e_salvar(
                 mensagem=mensagem,
                 sessao_key=sessao_id,
@@ -106,6 +134,12 @@ class AgentChatView(APIView):
                 ano_fim=ano_fim,
                 area=area,
                 pdf=pdf,
+                editar=editar,
+            )
+        except RequisicaoCancelada:
+            return Response(
+                {"cancelada": True, "requisicao_id": requisicao_id},
+                status=status.HTTP_200_OK,
             )
         except Exception as exc:
             mensagem_erro = _mensagem_erro_provedor(exc, api_key=api_key)
@@ -115,5 +149,7 @@ class AgentChatView(APIView):
                 {"erro": mensagem_erro},
                 status=status.HTTP_502_BAD_GATEWAY,
             )
+        finally:
+            limpar_requisicao()
 
         return Response(resultado, status=status.HTTP_200_OK)

@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  cancelarRequisicao,
+  criarSessao,
   enviarMensagem,
   excluirSessao as excluirSessaoApi,
   listarAreas,
@@ -71,6 +73,12 @@ export default function useConversa() {
   const [chaveSessaoVisualizada, setChaveSessaoVisualizada] =
     useState("nova-inicial");
   const chaveSessaoVisualizadaRef = useRef("nova-inicial");
+  const abortControllerRef = useRef(null);
+  const requisicaoIdRef = useRef(null);
+  const editandoRef = useRef(false);
+  const [pedidoEdicao, setPedidoEdicao] = useState({ texto: "", seq: 0 });
+  const [pedidoCancelamento, setPedidoCancelamento] = useState(0);
+  const [idEmEdicao, setIdEmEdicao] = useState(null);
 
   const definirSessaoVisualizada = useCallback((chave) => {
     chaveSessaoVisualizadaRef.current = chave;
@@ -128,6 +136,8 @@ export default function useConversa() {
 
   const selecionarSessao = useCallback(
     async (pk) => {
+      editandoRef.current = false;
+      setIdEmEdicao(null);
       definirSessaoVisualizada(`sessao-${pk}`);
       setCarregandoSessao(true);
       setErro("");
@@ -147,6 +157,8 @@ export default function useConversa() {
   );
 
   const novaSessao = useCallback(() => {
+    editandoRef.current = false;
+    setIdEmEdicao(null);
     definirSessaoVisualizada(`nova-${Date.now()}`);
     setMensagens([]);
     setArtigosSessao([]);
@@ -176,33 +188,106 @@ export default function useConversa() {
     async (texto, arquivo = null, requisicao = undefined, opcoes = {}) => {
       const conteudo = texto.trim();
       if (!conteudo || carregando) return;
+      const ehEdicao = editandoRef.current;
+      editandoRef.current = false;
+      if (ehEdicao) setIdEmEdicao(null);
       const chaveDaSessao = chaveSessaoVisualizadaRef.current;
+      abortControllerRef.current?.abort();
+      const controller = new AbortController();
+      abortControllerRef.current = controller;
+      const requisicaoId =
+        typeof crypto?.randomUUID === "function"
+          ? crypto.randomUUID()
+          : `req-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      requisicaoIdRef.current = requisicaoId;
       setErro("");
       setCarregamento({ chave: chaveDaSessao });
       const emitidaAgora = new Date().toISOString();
       const idOtimista = `temporaria-${emitidaAgora}`;
-      setMensagens((prev) => [
-        ...prev,
-        {
-          id: idOtimista,
-          papel: "user",
-          conteudo,
-          pdf_nome: arquivo?.name || "",
-          criada_em: emitidaAgora,
-        },
-      ]);
+      setMensagens((prev) => {
+        let base = prev;
+        if (ehEdicao) {
+          const ultimaUsuario = [...prev]
+            .reverse()
+            .find((m) => m.papel === "user");
+          const ultimaModelo = [...prev]
+            .reverse()
+            .find((m) => m.papel === "model");
+          const idsRemovidos = new Set(
+            [ultimaUsuario, ultimaModelo]
+              .map((m) => m?.id)
+              .filter((id) => id != null),
+          );
+          base = base.filter((m) => !idsRemovidos.has(m.id));
+        }
+        return [
+          ...base,
+          {
+            id: idOtimista,
+            papel: "user",
+            conteudo,
+            pdf_nome: arquivo?.name || "",
+            criada_em: emitidaAgora,
+          },
+        ];
+      });
+      let idDaSessao = sessaoId;
+      if (!idDaSessao) {
+        try {
+          const nova = await criarSessao(controller.signal);
+          idDaSessao = nova.sessao_id;
+          if (chaveSessaoVisualizadaRef.current === chaveDaSessao) {
+            setSessaoAtiva(nova.id);
+            setSessaoId(nova.sessao_id);
+            setSessoes((prev) => {
+              if (prev.some((s) => s.id === nova.id)) return prev;
+              return [
+                {
+                  id: nova.id,
+                  sessao_id: nova.sessao_id,
+                  titulo: nova.titulo ?? "",
+                  criada_em: nova.criada_em ?? new Date().toISOString(),
+                  total_mensagens: nova.total_mensagens ?? 0,
+                  ultima_mensagem: nova.ultima_mensagem ?? "",
+                },
+                ...prev,
+              ];
+            });
+          }
+        } catch {
+          if (controller.signal.aborted) return;
+          idDaSessao = null;
+        }
+      }
       try {
         const resultado = await enviarMensagem({
           mensagem: conteudo,
-          sessao_id: sessaoId,
+          sessao_id: idDaSessao,
           ano_inicio: filtros.anoInicio || 0,
           ano_fim: filtros.anoFim || 0,
           area: filtros.area || "",
           pdf: arquivo || null,
           requisicao,
+          requisicao_id: requisicaoId,
+          editar: ehEdicao,
+          signal: controller.signal,
           ...opcoes,
         });
         if (chaveSessaoVisualizadaRef.current === chaveDaSessao) {
+          if (resultado.sessao != null) {
+            setSessoes((prev) => {
+              if (prev.some((s) => s.id === resultado.sessao)) return prev;
+              return [
+                {
+                  id: resultado.sessao,
+                  sessao_id: resultado.sessao_id,
+                  titulo: conteudo.length > 500 ? conteudo.slice(0, 500) : conteudo,
+                  criada_em: emitidaAgora,
+                },
+                ...prev,
+              ];
+            });
+          }
           setSessaoAtiva((prev) => resultado.sessao ?? prev);
           setSessaoId((prev) => resultado.sessao_id ?? prev);
           setMensagens((prev) => {
@@ -235,10 +320,17 @@ export default function useConversa() {
           await atualizarSessoes();
         }
       } catch (e) {
+        if (controller.signal.aborted) return;
         if (chaveSessaoVisualizadaRef.current === chaveDaSessao) {
           setErro(e?.message ?? "Erro ao processar sua mensagem.");
         }
       } finally {
+        if (abortControllerRef.current === controller) {
+          abortControllerRef.current = null;
+        }
+        if (requisicaoIdRef.current === requisicaoId) {
+          requisicaoIdRef.current = null;
+        }
         setCarregamento((atual) =>
           atual?.chave === chaveDaSessao ? null : atual,
         );
@@ -247,11 +339,38 @@ export default function useConversa() {
     [carregando, sessaoId, filtros, atualizarSessoes],
   );
 
+  const cancelar = useCallback(() => {
+    const id = requisicaoIdRef.current;
+    if (id) {
+      cancelarRequisicao(id).catch(() => {});
+    }
+    abortControllerRef.current?.abort();
+  }, []);
+
+  const editarMensagem = useCallback((texto, id = null) => {
+    setPedidoEdicao((prev) => ({ texto, seq: prev.seq + 1 }));
+    setIdEmEdicao(id ?? null);
+    editandoRef.current = true;
+  }, []);
+
+  const cancelarEdicao = useCallback(() => {
+    if (!editandoRef.current) return;
+    editandoRef.current = false;
+    setIdEmEdicao(null);
+    setPedidoCancelamento((prev) => prev + 1);
+  }, []);
+
   return {
     mensagens,
     carregando,
     erro,
     enviar,
+    cancelar,
+    editarMensagem,
+    cancelarEdicao,
+    pedidoEdicao,
+    pedidoCancelamento,
+    idEmEdicao,
     sessoes,
     carregandoSessoes,
     carregandoSessao,

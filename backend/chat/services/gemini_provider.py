@@ -9,6 +9,7 @@ from collections.abc import Callable
 from typing import Any
 
 from .base import LLMProvider
+from .cancelamento import checar_cancelamento
 
 
 class GeminiProvider(LLMProvider):
@@ -165,6 +166,7 @@ class GeminiProvider(LLMProvider):
         config,
     ):
         """generate_content com degradação para modelos que só aceitam 1 turno."""
+        checar_cancelamento()
         try:
             return client.models.generate_content(
                 model=self.modelo,

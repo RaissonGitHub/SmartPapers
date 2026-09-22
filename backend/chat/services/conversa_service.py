@@ -41,6 +41,25 @@ def obter_ou_criar_sessao(sessao_key, usuario=None) -> Sessao:
     return obter_sessao(sessao_key, usuario) or criar_sessao(usuario)
 
 
+def remover_ultima_edicao(sessao: Sessao) -> None:
+    """Remove a última troca usuário/modelo para dar lugar à edição enviada.
+
+    A resposta do modelo só é apagada quando ela é de fato a última mensagem
+    da sessão (ou seja, responde à última pergunta). Se a última mensagem for
+    do próprio usuário (sem resposta), apenas ela é substituída.
+    """
+    ultima = sessao.mensagens.order_by("criada_em", "id").last()
+    if ultima is not None and ultima.papel == Papel.MODELO:
+        ultima.delete()
+    ultima_usuario = (
+        sessao.mensagens.filter(papel=Papel.USUARIO)
+        .order_by("-criada_em", "-id")
+        .first()
+    )
+    if ultima_usuario:
+        ultima_usuario.delete()
+
+
 def salvar_mensagem(
     sessao: Sessao,
     papel,
@@ -94,6 +113,7 @@ def processar_e_salvar(
     ano_fim: int = 0,
     area: str = "",
     pdf=None,
+    editar: bool = False,
 ) -> dict:
     """Executa a conversa e persiste usuário + modelo na sessão."""
     sessao = obter_ou_criar_sessao(sessao_key, usuario)
@@ -102,8 +122,13 @@ def processar_e_salvar(
         sessao.titulo = mensagem[:500]
         sessao.save(update_fields=["titulo"])
 
+    if editar:
+        remover_ultima_edicao(sessao)
+
     pdf_nome = (getattr(pdf, "name", "") or "")[:500] if pdf else ""
     pdfs = list(getattr(sessao, "pdfs", None) or [])
+    pdf_id_mensagem = None
+    pdf_nome_mensagem = ""
     if pdf:
         secoes_pdf = processar_pdf(pdf, [mensagem], provider)
         pdf_id = max((item.get("id", 0) for item in pdfs), default=0) + 1
@@ -128,6 +153,8 @@ def processar_e_salvar(
         sessao.pdf_secoes = secoes_pdf
         sessao.pdfs = pdfs
         sessao.save(update_fields=["pdf_nome", "pdf_secoes", "pdfs"])
+        pdf_id_mensagem = pdf_id
+        pdf_nome_mensagem = pdf_nome
     else:
         if not pdfs and (sessao.pdf_nome or sessao.pdf_secoes):
             pdfs = [
@@ -140,15 +167,15 @@ def processar_e_salvar(
                 }
             ]
         pdf_id, secoes_pdf = selecionar_pdf(pdfs, mensagem, provider)
-        pdf_selecionado = next(
-            (item for item in pdfs if item.get("id") == pdf_id), None
-        )
-        pdf_nome = (pdf_selecionado or {}).get("nome", "")[:500]
 
     historico = historico_sessao(sessao)
 
     mensagem_usuario = salvar_mensagem(
-        sessao, Papel.USUARIO, mensagem, pdf_nome=pdf_nome, pdf_id=pdf_id
+        sessao,
+        Papel.USUARIO,
+        mensagem,
+        pdf_nome=pdf_nome_mensagem,
+        pdf_id=pdf_id_mensagem,
     )
 
     resultado = processar_mensagem_usuario(
@@ -171,7 +198,7 @@ def processar_e_salvar(
         resultado.get("resposta", ""),
         artigos=artigos,
         ferramenta_utilizada=resultado.get("ferramenta_utilizada", False),
-        pdf_id=pdf_id,
+        pdf_id=pdf_id_mensagem,
     )
 
     if artigos:

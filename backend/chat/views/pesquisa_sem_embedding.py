@@ -5,6 +5,8 @@ from rest_framework.views import APIView
 
 
 class PesquisaSemEmbedding(APIView):
+    throttle_scope = "pesquisa"
+
     def post(self, request):
        
         embedding =  gerar_embedding(request.data.get('mensagem'))

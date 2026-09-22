@@ -97,4 +97,14 @@ export async function sair() {
   }
 }
 
+export async function obterPreferencias() {
+  const { data } = await api.get("/auth/preferencias/");
+  return data;
+}
+
+export async function salvarPreferencias(preferencias) {
+  const { data } = await api.put("/auth/preferencias/", preferencias);
+  return data;
+}
+
 export default api;

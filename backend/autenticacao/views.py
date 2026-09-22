@@ -62,8 +62,6 @@ class LoginView(APIView):
         kwargs.setdefault("context", _contexto_do_serializer(self))
         return _LoginSerializer(*args, **kwargs)
 
-    permission_classes = [AllowAny]
-
     def post(self, request):
         username = request.data.get("username", "")
         password = request.data.get("password", "")
@@ -108,3 +106,49 @@ class CsrfView(APIView):
 
     def get(self, request):
         return Response({"csrfToken": get_token(request)}, status=status.HTTP_200_OK)
+
+
+class PreferenciasView(APIView):
+    """Preferências do chat (provedor/modelo/chave) persistidas por sessão de login.
+
+    GET /auth/preferencias/  -> devolve as preferências salvas na sessão
+    PUT /auth/preferencias/  -> salva as preferências na sessão (Body: { provider, api_key, modelo })
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def _ler(self, request):
+        sessao = request.session
+        provider = sessao.get("pref_provider") or "gemini"
+        api_key = sessao.get("pref_api_key") or ""
+        modelo = sessao.get("pref_modelo") or ""
+        if provider == "ollama":
+            api_key = ""
+            modelo = ""
+        return {
+            "provider": provider,
+            "api_key": api_key,
+            "modelo": modelo,
+        }
+
+    def get(self, request):
+        return Response(self._ler(request), status=status.HTTP_200_OK)
+
+    def put(self, request):
+        provider = (request.data.get("provider") or "").strip().lower() or "gemini"
+        if provider not in ("gemini", "ollama"):
+            return Response(
+                {"erro": "Provedor inválido."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        api_key = (request.data.get("api_key") or "").strip()
+        modelo = (request.data.get("modelo") or "").strip()
+        if provider == "ollama":
+            api_key = ""
+            modelo = ""
+
+        sessao = request.session
+        sessao["pref_provider"] = provider
+        sessao["pref_api_key"] = api_key
+        sessao["pref_modelo"] = modelo
+        return Response(self._ler(request), status=status.HTTP_200_OK)

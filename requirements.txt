@@ -41,5 +41,5 @@ typing_extensions==4.16.0
 tzdata==2026.3
 urllib3==2.7.0
 django-cors-headers==4.7.0
-ollama
+ollama==0.6.2
 google-genai==2.24.0

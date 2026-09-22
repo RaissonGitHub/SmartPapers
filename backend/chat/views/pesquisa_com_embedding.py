@@ -4,6 +4,8 @@ from rest_framework.views import APIView
 
 
 class PesquisaComEmbedding(APIView):
+    throttle_scope = "pesquisa"
+
     def post(self, request):
         embedding = request.data.get("embedding")
         top_n = request.data.get("top_n")
