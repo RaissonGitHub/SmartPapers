@@ -1,4 +1,5 @@
 from django.contrib.auth.models import User
+from django.core.cache import cache
 from django.test import TestCase
 from rest_framework.test import APIClient
 
@@ -151,3 +152,102 @@ class PreferenciasSegurancaTests(TestCase):
             ]
         self.assertEqual(statuses[-1], 429)
         self.assertTrue(all(s in (400, 429) for s in statuses))
+
+
+class RegistroPublicoProtegidoTests(TestCase):
+    def tearDown(self):
+        cache.clear()
+
+    def test_registro_pode_ser_fechado_por_env(self):
+        import os
+        from unittest import mock
+
+        with mock.patch.dict(os.environ, {"REGISTRO_PUBLICO": "0"}):
+            resposta = APIClient().post(
+                "/auth/registrar/",
+                {"username": "maria", "password": "senha-forte-123"},
+                format="json",
+            )
+        self.assertEqual(resposta.status_code, 403)
+
+    def test_username_bloqueado(self):
+        for nome in ("admin", "root", "teste", "suporte"):
+            resposta = APIClient().post(
+                "/auth/registrar/",
+                {"username": nome, "password": "senha-forte-123"},
+                format="json",
+            )
+            self.assertEqual(resposta.status_code, 400, nome)
+        self.assertEqual(User.objects.count(), 0)
+
+    def test_username_formato_invalido(self):
+        for nome in ("ab", "nome com espaco", "nome!"):
+            resposta = APIClient().post(
+                "/auth/registrar/",
+                {"username": nome, "password": "senha-forte-123"},
+                format="json",
+            )
+            self.assertEqual(resposta.status_code, 400, nome)
+        self.assertEqual(User.objects.count(), 0)
+
+    def test_senha_fraca_rejeitada(self):
+        for senha in ("12345", "senha", "password"):
+            resposta = APIClient().post(
+                "/auth/registrar/",
+                {"username": "maria", "password": senha},
+                format="json",
+            )
+            self.assertEqual(resposta.status_code, 400, senha)
+        self.assertEqual(User.objects.count(), 0)
+
+    def test_registro_valido_funciona(self):
+        resposta = APIClient().post(
+            "/auth/registrar/",
+            {"username": "maria", "password": "senha-forte-123"},
+            format="json",
+        )
+        self.assertEqual(resposta.status_code, 201)
+        self.assertEqual(User.objects.count(), 1)
+
+
+class BloqueioPorIPTests(TestCase):
+    def setUp(self):
+        self.usuario = User.objects.create_user(
+            username="ana", password="senha-certa-123"
+        )
+        cache.clear()
+
+    def tearDown(self):
+        cache.clear()
+
+    def test_bloqueia_ip_apos_falhas_e_trava_mesmo_login_correto(self):
+        anon = APIClient()
+        for _ in range(5):
+            resposta = anon.post(
+                "/auth/login/",
+                {"username": "ana", "password": "senha-errada"},
+                format="json",
+            )
+            self.assertEqual(resposta.status_code, 400)
+
+        bloqueado = anon.post(
+            "/auth/login/",
+            {"username": "ana", "password": "senha-certa-123"},
+            format="json",
+        )
+        self.assertEqual(bloqueado.status_code, 429)
+
+    def test_login_correto_limpa_falhas(self):
+        anon = APIClient()
+        for _ in range(4):
+            anon.post(
+                "/auth/login/",
+                {"username": "ana", "password": "errada-1"},
+                format="json",
+            )
+        ok = anon.post(
+            "/auth/login/",
+            {"username": "ana", "password": "senha-certa-123"},
+            format="json",
+        )
+        self.assertEqual(ok.status_code, 200)

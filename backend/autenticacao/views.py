@@ -1,24 +1,44 @@
 from django.conf import settings
 from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.models import User
+from django.contrib.auth.password_validation import validate_password
+from django.core.exceptions import ValidationError
 from django.middleware.csrf import get_token
 from rest_framework import serializers, status
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .seguranca import mascarar_chave, validar_chave_api
+from .seguranca import (
+    ip_bloqueado,
+    limpar_falhas,
+    mascarar_chave,
+    registrar_falha,
+    registro_publico,
+    validar_chave_api,
+    validar_username,
+)
 
 
 class _RegistroSerializer(serializers.Serializer):
     username = serializers.CharField(max_length=150)
-    password = serializers.CharField(min_length=8, write_only=True)
+    password = serializers.CharField(min_length=10, write_only=True)
 
     def validate_username(self, value):
+        valido, motivo = validar_username(value)
+        if not valido:
+            raise serializers.ValidationError(motivo)
         if User.objects.filter(username__iexact=value).exists():
             raise serializers.ValidationError(
                 "Não foi possível criar a conta com esse nome de usuário."
             )
+        return value
+
+    def validate_password(self, value):
+        try:
+            validate_password(value)
+        except ValidationError as exc:
+            raise serializers.ValidationError(list(exc.messages))
         return value
 
 
@@ -36,17 +56,27 @@ def _resposta_usuario(user):
 
 
 class RegistrarView(APIView):
-    """POST /auth/registrar/  Body: { "username", "password" } -> cria conta e loga."""
+    """POST /auth/registrar/  Body: { "username", "password" } -> cria conta e loga.
+
+    Proteções: senha forte (validators do Django), nome de usuário validado e
+    com blocklist, rate limit por IP e possibilidade de fechar o cadastro via
+    env (REGISTRO_PUBLICO=0).
+    """
 
     permission_classes = [AllowAny]
     serializer_class = _RegistroSerializer
-    throttle_scope = "login"
+    throttle_scope = "registro"
 
     def get_serializer(self, *args, **kwargs):
         kwargs.setdefault("context", _contexto_do_serializer(self))
         return _RegistroSerializer(*args, **kwargs)
 
     def post(self, request):
+        if not registro_publico():
+            return Response(
+                {"erro": "O cadastro está desativado neste servidor."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
         serializer = _RegistroSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
@@ -70,16 +100,24 @@ class LoginView(APIView):
         return _LoginSerializer(*args, **kwargs)
 
     def post(self, request):
+        if ip_bloqueado(request):
+            return Response(
+                {"erro": "Muitas tentativas. Tente novamente em alguns minutos."},
+                status=status.HTTP_429_TOO_MANY_REQUESTS,
+            )
+
         username = request.data.get("username", "")
         password = request.data.get("password", "")
 
         user = authenticate(request, username=username, password=password)
         if user is None:
+            registrar_falha(request)
             return Response(
                 {"erro": "Credenciais inválidas."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        limpar_falhas(request)
         login(request, user)
         return Response(_resposta_usuario(user), status=status.HTTP_200_OK)
 

@@ -24,20 +24,27 @@ def _deve_preaquecer() -> bool:
         "on",
     ):
         return False
-    if sys.argv[1:2] != ["runserver"]:
-        return False
-    if os.environ.get("RUN_MAIN") == "true":
+    if sys.argv[1:2] == ["runserver"]:
+        return os.environ.get("RUN_MAIN") == "true" or "--noreload" in sys.argv
+    if os.path.basename(sys.argv[0] or "").startswith("gunicorn"):
         return True
-    return "--noreload" in sys.argv
+    return False
 
 
 class ArtigosConfig(AppConfig):
     name = "artigos"
 
     def ready(self):
-        if _deve_preaquecer():
-            threading.Thread(
-                target=_preaquecer,
-                name="preaquecimento-specter2",
-                daemon=True,
-            ).start()
+        if not _deve_preaquecer():
+            return
+        # No gunicorn (com --preload) o ready() roda só no master, uma vez:
+        # carregar o SPECTER2 de forma síncrona garante o modelo pronto antes
+        # do fork dos workers (sem thread/fork concorrente).
+        if os.path.basename(sys.argv[0] or "").startswith("gunicorn"):
+            _preaquecer()
+            return
+        threading.Thread(
+            target=_preaquecer,
+            name="preaquecimento-specter2",
+            daemon=True,
+        ).start()

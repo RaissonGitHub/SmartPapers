@@ -17,20 +17,29 @@ from dotenv import load_dotenv
 
 load_dotenv()
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
-BASE_DIR = Path(__file__).resolve().parent.parent
+BASE_DIR = Path(__file__).resolve().resolve().parent.parent
 
 
-# Quick-start development settings - unsuitable for production
-# See https://docs.djangoproject.com/en/6.1/howto/deployment/checklist/
+def _env_bool(nome: str, padrao: str) -> bool:
+    return os.getenv(nome, padrao).strip().lower() in ("1", "true", "yes", "on")
 
-# SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = os.getenv(
-    "DJANGO_SECRET_KEY",
-    "django-insecure--p5o)0ce@c7z8m^&@c2g00arr!rpdwhg5&l1umuh@)k920-86*",
-)
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = os.getenv("DJANGO_DEBUG", "True").strip().lower() in ("1", "true", "yes", "on")
+DEBUG = _env_bool("DJANGO_DEBUG", "true")
+
+# SECURITY WARNING: keep the secret key used in production secret!
+SECRET_KEY = os.getenv("DJANGO_SECRET_KEY")
+if not SECRET_KEY:
+    if DEBUG:
+        SECRET_KEY = (
+            "django-insecure--p5o)0ce@c7z8m^&@c2g00arr!rpdwhg5&l1umuh@)k920-86*"
+        )
+    else:
+        from django.core.exceptions import ImproperlyConfigured
+
+        raise ImproperlyConfigured(
+            "DJANGO_SECRET_KEY é obrigatório quando DJANGO_DEBUG=False."
+        )
 
 ALLOWED_HOSTS = [
     h.strip()
@@ -60,6 +69,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    "whitenoise.middleware.WhiteNoiseMiddleware",
     "corsheaders.middleware.CorsMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
@@ -103,6 +113,24 @@ DATABASES = {
     }
 }
 
+# Cache compartilhado (cancelamento de requisições entre workers).
+# Sem REDIS_URL, usa LocMemCache — que só enxerga o próprio processo, portanto
+# o cancelamento funciona apenas com um único worker do gunicorn.
+REDIS_URL = os.getenv("REDIS_URL", "").strip()
+if REDIS_URL:
+    CACHES = {
+        "default": {
+            "BACKEND": "django.core.cache.backends.redis.RedisCache",
+            "LOCATION": REDIS_URL,
+        }
+    }
+else:
+    CACHES = {
+        "default": {
+            "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+        }
+    }
+
 
 # Password validation
 # https://docs.djangoproject.com/en/6.1/ref/settings/#auth-password-validators
@@ -113,6 +141,7 @@ AUTH_PASSWORD_VALIDATORS = [
     },
     {
         "NAME": "django.contrib.auth.password_validation.MinimumLengthValidator",
+        "OPTIONS": {"min_length": 10},
     },
     {
         "NAME": "django.contrib.auth.password_validation.CommonPasswordValidator",
@@ -138,6 +167,12 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/6.1/howto/static-files/
 
 STATIC_URL = "static/"
+STATIC_ROOT = BASE_DIR / "staticfiles"
+STORAGES = {
+    "staticfiles": {
+        "BACKEND": "whitenoise.storage.CompressedStaticFilesStorage",
+    },
+}
 EMBEDDING_DIM = 768
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
@@ -169,22 +204,56 @@ REST_FRAMEWORK = {
         "modelos": "10/min",
         "pesquisa": "60/min",
         "login": "20/min",
+        "registro": "10/min",
     },
+    # Quantos proxies ficam entre o cliente e o gunicorn. Com nginx na frente
+    # (produção), defina DJANGO_NUM_PROXIES=1 para os rate limits e o bloqueio
+    # por IP usarem o IP real do cliente (via X-Forwarded-For).
+    "NUM_PROXIES": int(os.getenv("DJANGO_NUM_PROXIES", "0")),
 }
 
 
-# CORS e cookies de sessão para o frontend (origem separada)
-CORS_ALLOWED_ORIGINS = [
+# CORS e cookies de sessão para o frontend (origem separada em dev;
+# em produção defina DJANGO_CORS_ALLOWED_ORIGINS / DJANGO_CSRF_TRUSTED_ORIGINS).
+_DJANGO_ORIGENS_PADRAO = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
 ]
+
+CORS_ALLOWED_ORIGINS = [
+    o.strip()
+    for o in os.getenv("DJANGO_CORS_ALLOWED_ORIGINS", "").split(",")
+    if o.strip()
+] or _DJANGO_ORIGENS_PADRAO
 
 CORS_ALLOW_CREDENTIALS = True
 
 CSRF_TRUSTED_ORIGINS = [
-    "http://localhost:5173",
-    "http://127.0.0.1:5173",
-]
+    o.strip()
+    for o in os.getenv("DJANGO_CSRF_TRUSTED_ORIGINS", "").split(",")
+    if o.strip()
+] or _DJANGO_ORIGENS_PADRAO
+
+
+# --- HTTPS/produção ---
+# O Django fica atrás do nginx (ou load balancer) que termina o TLS; o header
+# abaixo + X-Forwarded-Proto fazem request.is_secure() funcionar.
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+
+# Padrão seguro: quando DEBUG=False, cookies de sessão/CSRF só via HTTPS e
+# redirecionamento para HTTPS. Pode ser desligado com env em infraestrutura
+# que termina TLS externamente.
+SESSION_COOKIE_SECURE = _env_bool(
+    "DJANGO_SECURE_COOKIES", "false" if DEBUG else "true"
+)
+CSRF_COOKIE_SECURE = _env_bool(
+    "DJANGO_SECURE_COOKIES", "false" if DEBUG else "true"
+)
+SECURE_SSL_REDIRECT = _env_bool("DJANGO_SSL_REDIRECT", "false" if DEBUG else "true")
+SECURE_HSTS_SECONDS = int(os.getenv("DJANGO_HSTS_SECONDS", "31536000" if not DEBUG else "0"))
+SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+SECURE_HSTS_PRELOAD = True
+SECURE_CONTENT_TYPE_NOSNIFF = True
 
 
 # Email
