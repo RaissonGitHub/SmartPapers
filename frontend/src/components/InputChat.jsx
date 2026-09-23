@@ -72,21 +72,27 @@ export default function InputChat({
   onProvedorChange,
   onApiKeyChange,
   onModeloChange,
+  ollamaHabilitado = null,
   pedidoEdicao = null,
   pedidoCancelamento = 0,
   onCancelarEdicao,
+  apiKeyDefinida = false,
+  chaveEditada = false,
 }) {
   const [modoRequisicao, setModoRequisicao] = useState("auto");
   const [anchorElRequisicao, setAnchorElRequisicao] = useState(null);
   const [anchorElModelo, setAnchorElModelo] = useState(null);
   const [anchorElFuncoes, setAnchorElFuncoes] = useState(null);
+  const [erroModelo, setErroModelo] = useState("");
 
   const modoAtivo = MODOS_REQUISICAO[modoRequisicao] ?? MODOS_REQUISICAO.auto;
   const IconeAtivo = modoAtivo.icone;
 
-  const ModeloIcone = provedor === "ollama" ? SmartToyIcon : ModelTrainingIcon;
+  const provedorAtivo = ollamaHabilitado === true ? provedor : "gemini";
+
+  const ModeloIcone = provedorAtivo === "ollama" ? SmartToyIcon : ModelTrainingIcon;
   const rotuloModelo =
-    provedor === "ollama"
+    provedorAtivo === "ollama"
       ? "Ollama"
       : modelo.trim()
         ? modelo.trim().replace(/^models\//, "")
@@ -99,12 +105,13 @@ export default function InputChat({
   };
 
   const opcoesModelo = useMemo(() => {
-    if (provedor === "ollama") return { provider: "ollama" };
+    if (provedorAtivo === "ollama") return { provider: "ollama" };
     const modeloSelecionado = modelo.trim();
     const extra = {};
     if (modeloSelecionado) extra.modelo = modeloSelecionado;
+    if (apiKey.trim() && chaveEditada) extra.api_key = apiKey.trim();
     return { provider: "gemini", ...extra };
-  }, [provedor, modelo]);
+  }, [provedorAtivo, modelo, apiKey, chaveEditada]);
 
   const adapter = useMemo(
     () => ({
@@ -116,6 +123,20 @@ export default function InputChat({
           .trim();
         const anexo = attachments?.[0]?.file ?? arquivo ?? null;
 
+        if (ollamaHabilitado !== true && (!apiKey.trim() || !modelo.trim())) {
+          setErroModelo(
+            ollamaHabilitado === false
+              ? "Informe a chave de API e selecione um modelo do Gemini antes de enviar."
+              : "Provedor ainda não confirmado pelo servidor. Informe a chave de API e selecione um modelo do Gemini antes de enviar.",
+          );
+          return new ReadableStream({
+            start(controller) {
+              controller.close();
+            },
+          });
+        }
+        setErroModelo("");
+
         onArquivoChange?.(null);
         await onEnviar?.(texto, anexo, modoAtivo.requisicao, opcoesModelo);
 
@@ -126,13 +147,27 @@ export default function InputChat({
         });
       },
     }),
-    [arquivo, modoAtivo.requisicao, onArquivoChange, onEnviar, opcoesModelo],
+    [
+      arquivo,
+      modoAtivo.requisicao,
+      onArquivoChange,
+      onEnviar,
+      opcoesModelo,
+      ollamaHabilitado,
+      apiKey,
+      modelo,
+    ],
   );
 
   return (
     <div
       className={`${className} flex flex-col border-t border-borda px-4 py-2.5 sm:px-5`}
     >
+      {erroModelo && (
+        <div className="mx-1 mb-2 rounded-lg border border-[#6b2a2a] bg-[#3d1a1a] px-3.5 py-2.5 text-sm text-[#f87171]">
+          {erroModelo}
+        </div>
+      )}
       {arquivo && (
         <div className="mb-2 flex w-fit max-w-full items-center gap-2 rounded-lg border border-borda bg-[#2e2e2e] px-3 py-1.5 text-xs text-gray-200">
           <span className="shrink-0">📄</span>
@@ -292,6 +327,9 @@ export default function InputChat({
                 onApiKeyChange={onApiKeyChange}
                 modelo={modelo}
                 onModeloChange={onModeloChange}
+                ollamaHabilitado={ollamaHabilitado}
+                apiKeyDefinida={apiKeyDefinida}
+                chaveEditada={chaveEditada}
                 className="gap-1.5 px-3 py-2.5"
               />
             </div>
@@ -352,6 +390,9 @@ export default function InputChat({
                 onApiKeyChange={onApiKeyChange}
                 modelo={modelo}
                 onModeloChange={onModeloChange}
+                ollamaHabilitado={ollamaHabilitado}
+                apiKeyDefinida={apiKeyDefinida}
+                chaveEditada={chaveEditada}
                 className="gap-1.5 px-3 pb-3"
               />
             </div>
@@ -360,6 +401,7 @@ export default function InputChat({
             aria-label="Mensagem"
             placeholder="Digite uma mensagem"
             maxRows={5}
+            maxLength={50000}
             onKeyDown={(e) => {
               if (e.key === "Escape") onCancelarEdicao?.();
             }}

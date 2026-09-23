@@ -3,7 +3,10 @@ import os
 import re
 from concurrent.futures import ThreadPoolExecutor
 
-from artigos.services.buscar_artigos_service import buscar_artigos
+from artigos.services.buscar_artigos_service import (
+    buscar_artigos,
+    intervalo_anos_artigos,
+)
 from artigos.services.gerar_embedding_service import gerar_embedding_lote
 
 from .cancelamento import RequisicaoCancelada, checar_cancelamento
@@ -11,27 +14,37 @@ from .providers import LLMProvider, usar_provedor
 from .refinamento import rerank_por_aderencia
 
 PDF_SECOES_BUSCA_MAX = int(os.getenv("PDF_SECOES_BUSCA_MAX", "4"))
-ANO_MINIMO_ARTIGOS = 2020
-ANO_MAXIMO_ARTIGOS = 2026
 
-SYSTEM_PROMPT = (
-    "Você é um assistente acadêmico e científico.\n"
-    "Regras:\n"
-    "1. Perguntas conceituais ou de conhecimento geral — como 'por que o céu é "
-    "azul?', 'o que é machine learning?', 'como funciona a fotossíntese?' — devem "
-    "ser respondidas DIRETAMENTE, SEM chamar a ferramenta de busca.\n"
-    "2. Use a ferramenta 'pesquisar_base_artigos' APENAS quando o usuário pedir "
-    "explicitamente para buscar, encontrar, listar ou recomendar artigos, papers "
-    "ou referências científicas.\n"
-    "3. Ao chamar a ferramenta, crie o parâmetro 'search_title_en' obrigatoriamente "
-    "em INGLÊS com o título acadêmico equivalente à dúvida do usuário.\n"
-    f"4. A base contém artigos somente entre {ANO_MINIMO_ARTIGOS} e "
-    f"{ANO_MAXIMO_ARTIGOS}. Não invente outros anos; quando não houver período "
-    "pedido pelo usuário, não envie filtros de ano.\n"
-    "5. Responda usando apenas os artigos retornados pela ferramenta. Se nenhum "
-    "artigo for diretamente relacionado à pergunta, diga isso honestamente em vez "
-    "de citar artigos irrelevantes, e responda a pergunta com o seu conhecimento."
-)
+
+def _range_anos() -> tuple[int, int]:
+    """Janela de anos disponível na base (fallback 2020-2026 se vazia)."""
+    minimo, maximo = intervalo_anos_artigos()
+    if minimo and maximo:
+        return minimo, maximo
+    return 2020, 2026
+
+
+def _system_prompt() -> str:
+    """Prompt do sistema com a janela real de anos da base."""
+    minimo, maximo = _range_anos()
+    return (
+        "Você é um assistente acadêmico e científico.\n"
+        "Regras:\n"
+        "1. Perguntas conceituais ou de conhecimento geral — como 'por que o céu é "
+        "azul?', 'o que é machine learning?', 'como funciona a fotossíntese?' — devem "
+        "ser respondidas DIRETAMENTE, SEM chamar a ferramenta de busca.\n"
+        "2. Use a ferramenta 'pesquisar_base_artigos' APENAS quando o usuário pedir "
+        "explicitamente para buscar, encontrar, listar ou recomendar artigos, papers "
+        "ou referências científicas.\n"
+        "3. Ao chamar a ferramenta, crie o parâmetro 'search_title_en' obrigatoriamente "
+        "em INGLÊS com o título acadêmico equivalente à dúvida do usuário.\n"
+        f"4. A base contém artigos somente entre {minimo} e {maximo}. Não invente "
+        "outros anos; quando não houver período pedido pelo usuário, não envie "
+        "filtros de ano.\n"
+        "5. Responda usando apenas os artigos retornados pela ferramenta. Se nenhum "
+        "artigo for diretamente relacionado à pergunta, diga isso honestamente em vez "
+        "de citar artigos irrelevantes, e responda a pergunta com o seu conhecimento."
+    )
 
 
 def _extrair_json_resposta(resposta: str) -> dict | None:
@@ -324,19 +337,20 @@ def _extrair_chamada_ferramenta(resposta) -> tuple[str | None, dict | None]:
 
 def _normalizar_anos_tool_call(args: dict) -> None:
     """Mantém anos sugeridos pelo modelo dentro da janela disponível na base."""
+    minimo, maximo = _range_anos()
     inicio = args.get("ano_inicio") or 0
     fim = args.get("ano_fim") or 0
-    inicio_invalido = inicio and not ANO_MINIMO_ARTIGOS <= inicio <= ANO_MAXIMO_ARTIGOS
-    fim_invalido = fim and not ANO_MINIMO_ARTIGOS <= fim <= ANO_MAXIMO_ARTIGOS
+    inicio_invalido = inicio and not minimo <= inicio <= maximo
+    fim_invalido = fim and not minimo <= fim <= maximo
 
     if inicio_invalido:
-        args["ano_inicio"] = ANO_MINIMO_ARTIGOS
+        args["ano_inicio"] = minimo
     if fim_invalido:
-        args["ano_fim"] = ANO_MAXIMO_ARTIGOS
+        args["ano_fim"] = maximo
     if inicio_invalido and fim_invalido:
         print(
             f"[RAG] Intervalo de anos do modelo fora da base; usando "
-            f"{ANO_MINIMO_ARTIGOS}-{ANO_MAXIMO_ARTIGOS}."
+            f"{minimo}-{maximo}."
         )
 
 
@@ -374,7 +388,7 @@ def _resposta_direta(
     """Resposta conceitual geral: sem busca no banco."""
     p = usar_provedor(provedor)
     checar_cancelamento()
-    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+    messages = [{"role": "system", "content": _system_prompt()}]
     messages.extend(_mensagem_pdf_catalogo(pdf_catalogo))
     messages.extend(_mensagens_pdf_contexto(pdf_secoes))
     messages.extend(_mensagens_artigos_contexto(artigos_contexto))
@@ -409,7 +423,7 @@ def processar_mensagem_usuario(
         ano_fim: int = 0,
         area: str = "",
     ) -> list[dict]:
-        """Busca artigos da base disponível, publicada entre 2020 e 2026."""
+        """Busca artigos da base disponível na janela de anos existente."""
         print(f"[RAG] Função ferramenta chamada com: {search_title_en} | top_n={top_n}")
         return _buscar_dupla_artigos(
             search_title_en=search_title_en,
@@ -436,7 +450,7 @@ def processar_mensagem_usuario(
             pdf_secoes=pdf_secoes,
         )
 
-    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+    messages = [{"role": "system", "content": _system_prompt()}]
     messages.extend(_mensagem_pdf_catalogo(pdf_catalogo))
     messages.extend(_mensagens_pdf_contexto(pdf_secoes))
     messages.extend(_mensagens_artigos_contexto(artigos_contexto))

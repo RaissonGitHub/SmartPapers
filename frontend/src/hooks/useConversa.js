@@ -65,6 +65,7 @@ export default function useConversa() {
   const [carregandoSessao, setCarregandoSessao] = useState(false);
   const [areas, setAreas] = useState([]);
   const [carregandoAreas, setCarregandoAreas] = useState(true);
+  const [limitesAnos, setLimitesAnos] = useState({ anoMinimo: 0, anoMaximo: 0 });
   const [filtros, setFiltros] = useState({
     anoInicio: null,
     anoFim: null,
@@ -91,8 +92,14 @@ export default function useConversa() {
     let cancelado = false;
     (async () => {
       try {
-        const lista = await listarAreas();
-        if (!cancelado) setAreas(lista);
+        const resultado = await listarAreas();
+        if (!cancelado) {
+          setAreas(resultado.areas);
+          setLimitesAnos({
+            anoMinimo: resultado.anoMinimo,
+            anoMaximo: resultado.anoMaximo,
+          });
+        }
       } catch {
         // áreas indisponíveis não impedem o chat
       } finally {
@@ -381,6 +388,7 @@ export default function useConversa() {
     excluirSessao,
     areas,
     carregandoAreas,
+    limitesAnos,
     filtros,
     definirFiltro,
   };

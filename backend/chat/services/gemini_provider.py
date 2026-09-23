@@ -12,6 +12,27 @@ from .base import LLMProvider
 from .cancelamento import checar_cancelamento
 
 
+def mensagem_chave_invalida(exc) -> str | None:
+    """Devolve mensagem PT-BR amigável para chave de API do Gemini inválida.
+
+    Retorna None quando o erro não indica problema de chave, para que a camada
+    de apresentação decida como tratar. Nunca expõe a própria chave.
+    """
+    texto = str(getattr(exc, "message", "") or getattr(exc, "body", "") or exc)
+    baixo = texto.lower()
+    if "api key" not in baixo:
+        return None
+    if not any(
+        marcador in baixo
+        for marcador in ("not valid", "invalid", "expired", "unauthenticated", "quota")
+    ):
+        return None
+    return (
+        "Sua chave de API do Google é inválida, expirou ou atingiu o limite de "
+        "uso. Verifique a chave nas opções de modelo e tente novamente."
+    )
+
+
 class GeminiProvider(LLMProvider):
     """Provedor usando google-genai com function calling (generate_content)."""
 

@@ -22,6 +22,8 @@ export default function Sidebar({
   onExcluirSessao,
   areas = [],
   carregandoAreas = false,
+  anoMinimo = 0,
+  anoMaximo = 0,
   filtros = { anoInicio: null, anoFim: null, area: "" },
   onDefinirFiltro,
   onClose,
@@ -34,6 +36,8 @@ export default function Sidebar({
     onExcluirSessao?.(sessaoParaExcluir.id);
     setSessaoParaExcluir(null);
   };
+  const anoMinimoUsado = Number(anoMinimo) || 2020;
+  const anoMaximoUsado = Number(anoMaximo) || 2026;
   return (
     <>
       <div
@@ -113,8 +117,8 @@ export default function Sidebar({
               <div className="flex justify-between px-2">
                 <Ano
                   label={"De"}
-                  minDate={dayjs("2020-01-01")}
-                  maxDate={dayjs("2026-12-31")}
+                  minDate={dayjs(`${anoMinimoUsado}-01-01`)}
+                  maxDate={dayjs(`${anoMaximoUsado}-12-31`)}
                   value={
                     filtros.anoInicio ? dayjs(String(filtros.anoInicio)) : null
                   }
@@ -124,8 +128,8 @@ export default function Sidebar({
                 />
                 <Ano
                   label={"Até"}
-                  minDate={dayjs("2020-01-01")}
-                  maxDate={dayjs("2026-12-31")}
+                  minDate={dayjs(`${anoMinimoUsado}-01-01`)}
+                  maxDate={dayjs(`${anoMaximoUsado}-12-31`)}
                   value={filtros.anoFim ? dayjs(String(filtros.anoFim)) : null}
                   onChange={(nova) =>
                     onDefinirFiltro?.("anoFim", nova ? nova.year() : null)

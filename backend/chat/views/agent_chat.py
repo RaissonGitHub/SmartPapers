@@ -1,6 +1,10 @@
+import os
+
 from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
+
+from autenticacao.seguranca import remover_chave_do_texto, validar_chave_api
 
 from ..serializers import AgentChatRequestSerializer
 from ..services.cancelamento import (
@@ -10,7 +14,12 @@ from ..services.cancelamento import (
     novo_id,
 )
 from ..services.conversa_service import processar_e_salvar
-from ..services.providers import criar_provedor
+from ..services.gemini_provider import mensagem_chave_invalida
+from ..services.providers import criar_provedor, ollama_habilitado
+
+MAX_MENSAGEM_CHARS = int(os.getenv("MAX_MENSAGEM_CHARS", "50000"))
+MAX_PDF_BYTES = int(os.getenv("MAX_PDF_BYTES", str(15 * 1024 * 1024)))
+MAX_PDF_MB = MAX_PDF_BYTES // (1024 * 1024)
 
 
 def _mensagem_erro_provedor(exc, api_key=None):
@@ -26,9 +35,12 @@ def _mensagem_erro_provedor(exc, api_key=None):
         erros_genai = None
 
     if erros_genai is not None and isinstance(exc, erros_genai.APIError):
-        mensagem = (exc.message or str(exc)).strip()
-        if api_key:
-            mensagem = mensagem.replace(api_key, "***")
+        mensagem_chave = mensagem_chave_invalida(exc)
+        if mensagem_chave:
+            return mensagem_chave
+        mensagem = remover_chave_do_texto(
+            (exc.message or str(exc)).strip(), api_key
+        )
         return f"Erro na chamada ao Gemini: {mensagem}"
 
     if getattr(type(exc), "__module__", "").startswith("ollama"):
@@ -62,11 +74,11 @@ class AgentChatView(APIView):
     def post(self, request):
         mensagem = request.data.get("mensagem")
         preferencias = request.session
-        provider_name = (
-            (request.data.get("provider") or "").strip()
-            or preferencias.get("pref_provider")
-            or ""
-        ).lower()
+        provider_request = (request.data.get("provider") or "").strip().lower()
+        pref_provider = (preferencias.get("pref_provider") or "").lower()
+        if not provider_request and pref_provider == "ollama" and not ollama_habilitado():
+            pref_provider = "gemini"
+        provider_name = provider_request or pref_provider or ""
         api_key = (
             (request.data.get("api_key") or "").strip()
             or preferencias.get("pref_api_key")
@@ -102,11 +114,50 @@ class AgentChatView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        if pdf and not getattr(pdf, "name", "").lower().endswith(".pdf"):
+        if len(mensagem) > MAX_MENSAGEM_CHARS:
             return Response(
-                {"erro": "O anexo enviado deve ser um arquivo PDF."},
+                {
+                    "erro": f"A mensagem é muito longa "
+                    f"(máximo de {MAX_MENSAGEM_CHARS} caracteres)."
+                },
                 status=status.HTTP_400_BAD_REQUEST,
             )
+
+        if api_key and not validar_chave_api(api_key):
+            return Response(
+                {"erro": "Chave de API inválida. Verifique e tente novamente."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if pdf:
+            nome_pdf = getattr(pdf, "name", "") or ""
+            if not nome_pdf.lower().endswith(".pdf"):
+                return Response(
+                    {"erro": "O anexo enviado deve ser um arquivo PDF."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            if getattr(pdf, "size", 0) > MAX_PDF_BYTES:
+                return Response(
+                    {
+                        "erro": f"O anexo PDF é muito grande "
+                        f"(máximo de {MAX_PDF_MB} MB)."
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            inicio = b""
+            if hasattr(pdf, "read"):
+                try:
+                    inicio = pdf.read(8) or b""
+                finally:
+                    try:
+                        pdf.seek(0)
+                    except Exception:
+                        pass
+            if not inicio.startswith(b"%PDF-"):
+                return Response(
+                    {"erro": "O arquivo enviado não é um PDF válido."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
 
         if requisicao and requisicao not in ("busca", "resposta"):
             return Response(
@@ -140,6 +191,11 @@ class AgentChatView(APIView):
             return Response(
                 {"cancelada": True, "requisicao_id": requisicao_id},
                 status=status.HTTP_200_OK,
+            )
+        except ValueError as exc:
+            return Response(
+                {"erro": str(exc)},
+                status=status.HTTP_400_BAD_REQUEST,
             )
         except Exception as exc:
             mensagem_erro = _mensagem_erro_provedor(exc, api_key=api_key)

@@ -29,6 +29,7 @@ export default function Index({ usuario, onSair }) {
     excluirSessao,
     areas,
     carregandoAreas,
+    limitesAnos,
     filtros,
     definirFiltro,
   } = useConversa();
@@ -36,8 +37,11 @@ export default function Index({ usuario, onSair }) {
   const [sidebarAberta, setSidebarAberta] = useState(false);
   const [sidebarRecolhida, setSidebarRecolhida] = useState(false);
   const [provedor, setProvedor] = useState("gemini");
-  const [apiKey, setApiKey] = useState("");
-  const [modelo, setModelo] = useState("");
+const [apiKey, setApiKey] = useState("");
+const [apiKeyDefinida, setApiKeyDefinida] = useState(false);
+const [chaveEditada, setChaveEditada] = useState(false);
+const [modelo, setModelo] = useState("");
+  const [ollamaHabilitado, setOllamaHabilitado] = useState(null);
   const ultimasPrefsRef = useRef(null);
   const alteradoRef = useRef(false);
   const prefsCarregadasRef = useRef(false);
@@ -53,9 +57,16 @@ export default function Index({ usuario, onSair }) {
           api_key: prefs?.api_key ?? "",
           modelo: prefs?.modelo ?? "",
         };
+        const ollama_on = prefs?.ollama_enabled ?? true;
+        if (!ollama_on && carregadas.provider === "ollama") {
+          carregadas.provider = "gemini";
+        }
         ultimasPrefsRef.current = carregadas;
+        setOllamaHabilitado(Boolean(ollama_on));
         setProvedor(carregadas.provider);
         setApiKey(carregadas.api_key);
+        setApiKeyDefinida(Boolean(prefs?.api_key_definida ?? !!carregadas.api_key));
+        setChaveEditada(false);
         setModelo(carregadas.modelo);
         prefsCarregadasRef.current = true;
       })
@@ -68,15 +79,27 @@ export default function Index({ usuario, onSair }) {
   }, []);
 
   useEffect(() => {
-    const atuais = { provider: provedor, api_key: apiKey, modelo };
+    const api_key = chaveEditada && apiKey.trim() ? apiKey.trim() : undefined;
+    const atuais = { provider: provedor, api_key, modelo };
     if (!prefsCarregadasRef.current) return;
     if (JSON.stringify(atuais) === JSON.stringify(ultimasPrefsRef.current)) return;
     alteradoRef.current = true;
     const id = setTimeout(() => {
-      salvarPreferencias(atuais).catch(() => {});
+      salvarPreferencias(atuais)
+        .then((prefs) => {
+          setApiKeyDefinida(Boolean(prefs?.api_key_definida));
+          setChaveEditada(false);
+        })
+        .catch(() => {});
     }, 400);
     return () => clearTimeout(id);
-  }, [provedor, apiKey, modelo]);
+  }, [provedor, apiKey, modelo, chaveEditada]);
+
+  const aoMudarChave = (valor) => {
+    setChaveEditada(true);
+    setApiKey(valor);
+  };
+
   return (
     <>
       <div className="flex h-screen flex-col overflow-hidden">
@@ -107,6 +130,8 @@ export default function Index({ usuario, onSair }) {
             onExcluirSessao={excluirSessao}
             areas={areas}
             carregandoAreas={carregandoAreas}
+            anoMinimo={limitesAnos.anoMinimo}
+            anoMaximo={limitesAnos.anoMaximo}
             filtros={filtros}
             onDefinirFiltro={definirFiltro}
             onClose={() => setSidebarAberta(false)}
@@ -141,9 +166,12 @@ export default function Index({ usuario, onSair }) {
               provedor={provedor}
               onProvedorChange={setProvedor}
               apiKey={apiKey}
-              onApiKeyChange={setApiKey}
+              onApiKeyChange={aoMudarChave}
               modelo={modelo}
               onModeloChange={setModelo}
+              ollamaHabilitado={ollamaHabilitado}
+              apiKeyDefinida={apiKeyDefinida}
+              chaveEditada={chaveEditada}
               pedidoEdicao={pedidoEdicao}
               pedidoCancelamento={pedidoCancelamento}
               onCancelarEdicao={cancelarEdicao}

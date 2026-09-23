@@ -18,13 +18,21 @@ from chat.services.rag import (
 
 
 class NormalizacaoAnosToolCallTestCase(TestCase):
+    def setUp(self):
+        Artigo.objects.create(
+            openalex_id="o-antigo", titulo="Antigo", ano_publicacao=2017
+        )
+        Artigo.objects.create(
+            openalex_id="o-novo", titulo="Novo", ano_publicacao=2025
+        )
+
     def test_intervalo_fora_da_base_usa_janela_disponivel(self):
         args = {"ano_inicio": 2010, "ano_fim": 2015}
 
         _normalizar_anos_tool_call(args)
 
-        self.assertEqual(args["ano_inicio"], 2020)
-        self.assertEqual(args["ano_fim"], 2026)
+        self.assertEqual(args["ano_inicio"], 2017)
+        self.assertEqual(args["ano_fim"], 2025)
 
     def test_intervalo_valido_e_preservado(self):
         args = {"ano_inicio": 2021, "ano_fim": 2025}
@@ -32,6 +40,16 @@ class NormalizacaoAnosToolCallTestCase(TestCase):
         _normalizar_anos_tool_call(args)
 
         self.assertEqual(args, {"ano_inicio": 2021, "ano_fim": 2025})
+
+
+class NormalizacaoAnosSemBaseTestCase(TestCase):
+    def test_base_vazia_usa_janela_fallback(self):
+        args = {"ano_inicio": 1999, "ano_fim": 1999}
+
+        _normalizar_anos_tool_call(args)
+
+        self.assertEqual(args["ano_inicio"], 2020)
+        self.assertEqual(args["ano_fim"], 2026)
 
 
 class OllamaTimeoutTestCase(TestCase):
@@ -225,13 +243,13 @@ class AgentePersistenciaTestCase(TestCase):
 
     def test_areas_retorna_valores_distintos(self):
         Artigo.objects.create(
-            openalex_id="o-1", titulo="A", area_conhecimento="Medicine"
+            openalex_id="o-1", titulo="A", area_conhecimento="Medicine", ano_publicacao=2018
         )
         Artigo.objects.create(
-            openalex_id="o-2", titulo="B", area_conhecimento="Medicine"
+            openalex_id="o-2", titulo="B", area_conhecimento="Medicine", ano_publicacao=2021
         )
         Artigo.objects.create(
-            openalex_id="o-3", titulo="C", area_conhecimento="Computer Science"
+            openalex_id="o-3", titulo="C", area_conhecimento="Computer Science", ano_publicacao=2021
         )
         resposta = self.client.get("/chat/areas/")
         self.assertEqual(resposta.status_code, 200)
@@ -239,6 +257,8 @@ class AgentePersistenciaTestCase(TestCase):
             set(resposta.data["areas"]),
             {"Medicine", "Computer Science"},
         )
+        self.assertEqual(resposta.data["ano_minimo"], 2018)
+        self.assertEqual(resposta.data["ano_maximo"], 2021)
 
     @patch("chat.services.conversa_service.processar_mensagem_usuario")
     def test_resposta_usa_historico_da_sessao(self, mock_rag):
@@ -404,6 +424,8 @@ class AutenticacaoTestCase(TestCase):
             format="json",
         )
         self.assertEqual(resposta.status_code, 400)
+        self.assertNotIn("já está em uso", str(resposta.data))
+        self.assertNotIn("em uso", str(resposta.data))
 
     def test_login_estabelece_sessao_e_me_responde(self):
         User.objects.create_user(username="logado", password="senha123")
@@ -578,7 +600,38 @@ class AgenteErroProvedorTestCase(TestCase):
             {
                 "mensagem": "oi",
                 "provider": "gemini",
-                "api_key": "CHAVE-SECRETA",
+                "api_key": "AIzaSytesteCHAVESECRETA1234",
+                "modelo": "gemini-3.8-flash",
+            },
+            format="json",
+        )
+
+        self.assertEqual(resposta.status_code, 502)
+        self.assertIn("chave de api", resposta.data["erro"].lower())
+        self.assertNotIn("AIzaSytesteCHAVESECRETA1234", resposta.data["erro"])
+        self.assertNotIn("API key not valid", resposta.data["erro"])
+
+    @patch("chat.views.agent_chat.processar_e_salvar")
+    def test_erro_generico_da_api_gemini_mantem_preambulo(self, mock_processar):
+        from google.genai import errors as erros_genai
+
+        mock_processar.side_effect = erros_genai.ClientError(
+            429,
+            {
+                "error": {
+                    "code": 429,
+                    "message": "Quota exceeded for model.",
+                    "status": "RESOURCE_EXHAUSTED",
+                }
+            },
+        )
+
+        resposta = self.client.post(
+            "/chat/agente/",
+            {
+                "mensagem": "oi",
+                "provider": "gemini",
+                "api_key": "AIzaSytesteCHAVESECRETA1234",
                 "modelo": "gemini-3.8-flash",
             },
             format="json",
@@ -586,7 +639,65 @@ class AgenteErroProvedorTestCase(TestCase):
 
         self.assertEqual(resposta.status_code, 502)
         self.assertIn("Erro na chamada ao Gemini", resposta.data["erro"])
-        self.assertNotIn("CHAVE-SECRETA", resposta.data["erro"])
+        self.assertNotIn("AIzaSytesteCHAVESECRETA1234", resposta.data["erro"])
+
+
+class AgenteValidacaoEntradaTestCase(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.usuario = User.objects.create_user(username="limit", password="senha123")
+        self.client.force_authenticate(user=self.usuario)
+        self.base = {
+            "mensagem": "oi",
+            "provider": "gemini",
+            "api_key": "AIzaSytesteCHAVESECRETA1234",
+            "modelo": "gemini-3.8-flash",
+        }
+
+    @patch("chat.views.agent_chat.processar_e_salvar")
+    def test_mensagem_dentro_do_limite_prossegue(self, mock_processar):
+        mock_processar.return_value = {"ok": True, "modelo": "x", "tempo": 0.0}
+        self.base["mensagem"] = "a" * 50000
+        resposta = self.client.post("/chat/agente/", self.base, format="json")
+        self.assertEqual(resposta.status_code, 200)
+
+    def test_mensagem_acima_do_limite_e_rejeitada(self):
+        self.base["mensagem"] = "a" * 50001
+        resposta = self.client.post("/chat/agente/", self.base, format="json")
+        self.assertEqual(resposta.status_code, 400)
+        self.assertIn("muito longa", resposta.data["erro"])
+
+    def test_pdf_falso_pela_extensao_e_rejeitado(self):
+        falso = SimpleUploadedFile("malware.pdf", b"MZ\x90\x00\x00\x00" + b"X" * 4096)
+        self.base["pdf"] = falso
+        resposta = self.client.post("/chat/agente/", self.base, format="multipart")
+        self.assertEqual(resposta.status_code, 400)
+        self.assertIn("não é um PDF válido", resposta.data["erro"])
+
+    def test_arquivo_nao_pdf_por_extensao_e_rejeitado(self):
+        exe = SimpleUploadedFile("malware.exe", b"x" * 512)
+        self.base["pdf"] = exe
+        resposta = self.client.post("/chat/agente/", self.base, format="multipart")
+        self.assertEqual(resposta.status_code, 400)
+        self.assertIn("arquivo PDF", resposta.data["erro"])
+
+    @patch("chat.views.agent_chat.processar_e_salvar")
+    def test_pdf_grande_e_rejeitado(self, mock_processar):
+        valido = SimpleUploadedFile("grande.pdf", b"%PDF-1.7\n" + b"0" * 64)
+        with patch("chat.views.agent_chat.MAX_PDF_BYTES", 10):
+            self.base["pdf"] = valido
+            resposta = self.client.post("/chat/agente/", self.base, format="multipart")
+        self.assertEqual(resposta.status_code, 400)
+        self.assertIn("muito grande", resposta.data["erro"])
+        mock_processar.assert_not_called()
+
+    @patch("chat.views.agent_chat.processar_e_salvar")
+    def test_pdf_valido_prossegue_para_processamento(self, mock_processar):
+        mock_processar.return_value = {"ok": True, "modelo": "x", "tempo": 0.0}
+        valido = SimpleUploadedFile("nota.pdf", b"%PDF-1.7\nconteudo")
+        self.base["pdf"] = valido
+        resposta = self.client.post("/chat/agente/", self.base, format="multipart")
+        self.assertEqual(resposta.status_code, 200)
 
 
 class PdfRobustezFormatacaoTestCase(TestCase):

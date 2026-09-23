@@ -24,14 +24,18 @@ export default function SeletorModelo({
   onApiKeyChange,
   modelo = "",
   onModeloChange,
+  ollamaHabilitado = null,
+  apiKeyDefinida = false,
+  chaveEditada = false,
 }) {
   const [modelos, setModelos] = useState([]);
   const [carregando, setCarregando] = useState(false);
   const [erro, setErro] = useState("");
   const [mostrarChave, setMostrarChave] = useState(false);
+  const provedorAtivo = ollamaHabilitado === true ? provedor : "gemini";
 
   const carregarModelos = async () => {
-    const chave = apiKey.trim();
+    const chave = (chaveEditada ? apiKey : "").trim();
     if (!chave) {
       setErro("Informe sua chave de API do Google antes de listar os modelos.");
       return;
@@ -86,7 +90,7 @@ export default function SeletorModelo({
         exclusive
         size="small"
         fullWidth
-        value={provedor}
+        value={provedorAtivo}
         onChange={(_, valor) => valor && aoMudarProvedor(valor)}
         sx={{
           flex: "1 1 100%",
@@ -98,24 +102,30 @@ export default function SeletorModelo({
         <ToggleButton value="gemini" sx={toggleSx}>
           Google (Gemini)
         </ToggleButton>
+        {ollamaHabilitado === true && (
         <ToggleButton value="ollama" sx={toggleSx}>
           Ollama (local)
         </ToggleButton>
+        )}
       </ToggleButtonGroup>
-      {provedor === "ollama" && (
+      {provedorAtivo === "ollama" && (
         <span className="w-full text-[11px] leading-4 text-gray-400">
           Ollama do servidor, sem enviar chave. O modelo local usa o
           configurado pelo backend (MODELO_OLLAMA).
         </span>
       )}
-      {provedor === "gemini" && (
+      {provedorAtivo === "gemini" && (
         <>
         <TextField
         size="small"
         fullWidth
         type={mostrarChave ? "text" : "password"}
-        placeholder="Sua chave de API do Google IA (Gemini)"
-        value={apiKey}
+        placeholder={
+          apiKeyDefinida && !chaveEditada
+            ? "Chave já configurada (digite para substituir)"
+            : "Sua chave de API do Google IA (Gemini)"
+        }
+        value={chaveEditada ? apiKey : ""}
         onChange={(e) => aoMudarChave(e.target.value)}
         onKeyDown={(e) => {
           if (e.key === "Enter") carregarModelos();

@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.models import User
 from django.middleware.csrf import get_token
@@ -6,6 +7,8 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from .seguranca import mascarar_chave, validar_chave_api
+
 
 class _RegistroSerializer(serializers.Serializer):
     username = serializers.CharField(max_length=150)
@@ -13,7 +16,9 @@ class _RegistroSerializer(serializers.Serializer):
 
     def validate_username(self, value):
         if User.objects.filter(username__iexact=value).exists():
-            raise serializers.ValidationError("Nome de usuário já está em uso.")
+            raise serializers.ValidationError(
+                "Não foi possível criar a conta com esse nome de usuário."
+            )
         return value
 
 
@@ -35,6 +40,7 @@ class RegistrarView(APIView):
 
     permission_classes = [AllowAny]
     serializer_class = _RegistroSerializer
+    throttle_scope = "login"
 
     def get_serializer(self, *args, **kwargs):
         kwargs.setdefault("context", _contexto_do_serializer(self))
@@ -57,6 +63,7 @@ class LoginView(APIView):
 
     permission_classes = [AllowAny]
     serializer_class = _LoginSerializer
+    throttle_scope = "login"
 
     def get_serializer(self, *args, **kwargs):
         kwargs.setdefault("context", _contexto_do_serializer(self))
@@ -119,7 +126,10 @@ class PreferenciasView(APIView):
 
     def _ler(self, request):
         sessao = request.session
+        ollama_on = bool(settings.OLLAMA_ENABLED)
         provider = sessao.get("pref_provider") or "gemini"
+        if provider == "ollama" and not ollama_on:
+            provider = "gemini"
         api_key = sessao.get("pref_api_key") or ""
         modelo = sessao.get("pref_modelo") or ""
         if provider == "ollama":
@@ -127,8 +137,10 @@ class PreferenciasView(APIView):
             modelo = ""
         return {
             "provider": provider,
-            "api_key": api_key,
+            "api_key": mascarar_chave(api_key) if api_key else "",
+            "api_key_definida": bool(api_key),
             "modelo": modelo,
+            "ollama_enabled": ollama_on,
         }
 
     def get(self, request):
@@ -141,14 +153,28 @@ class PreferenciasView(APIView):
                 {"erro": "Provedor inválido."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        api_key = (request.data.get("api_key") or "").strip()
-        modelo = (request.data.get("modelo") or "").strip()
-        if provider == "ollama":
-            api_key = ""
-            modelo = ""
+        if provider == "ollama" and not settings.OLLAMA_ENABLED:
+            return Response(
+                {"erro": "O provedor Ollama está desativado neste servidor."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         sessao = request.session
         sessao["pref_provider"] = provider
-        sessao["pref_api_key"] = api_key
-        sessao["pref_modelo"] = modelo
+
+        if provider == "ollama":
+            sessao["pref_api_key"] = ""
+            sessao["pref_modelo"] = ""
+        else:
+            if "api_key" in request.data:
+                api_key = (request.data.get("api_key") or "").strip()
+                if api_key and not validar_chave_api(api_key):
+                    return Response(
+                        {"erro": "Chave de API inválida. Verifique e tente novamente."},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+                sessao["pref_api_key"] = api_key
+            if "modelo" in request.data:
+                sessao["pref_modelo"] = (request.data.get("modelo") or "").strip()
+
         return Response(self._ler(request), status=status.HTTP_200_OK)

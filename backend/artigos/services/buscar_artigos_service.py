@@ -2,6 +2,7 @@ import os
 import threading
 import time
 
+from django.db.models import Max, Min
 from pgvector.django import CosineDistance
 
 from ..models.artigo import Artigo
@@ -12,6 +13,21 @@ AREAS_CACHE_TTL = int(os.getenv("AREAS_CACHE_TTL", "300"))
 _areas_cache: tuple[str, ...] | None = None
 _areas_cache_criacao = 0.0
 _areas_cache_lock = threading.Lock()
+
+
+def intervalo_anos_artigos() -> tuple[int, int]:
+    """Anos mínimo e máximo de publicação presentes na base.
+
+    Retorna (0, 0) quando não há artigos com ano informado.
+    """
+    agregado = Artigo.objects.aggregate(
+        minimo=Min("ano_publicacao"), maximo=Max("ano_publicacao")
+    )
+    minimo = agregado["minimo"] or 0
+    maximo = agregado["maximo"] or 0
+    if not minimo or not maximo:
+        return 0, 0
+    return minimo, maximo
 
 
 def _areas_existentes() -> tuple[str, ...]:

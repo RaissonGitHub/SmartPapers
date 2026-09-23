@@ -102,7 +102,11 @@ export async function listarModelos(apiKey) {
 export async function listarAreas() {
   try {
     const { data } = await api.get("/chat/areas/");
-    return data?.areas ?? [];
+    return {
+      areas: Array.isArray(data?.areas) ? data.areas : [],
+      anoMinimo: data?.ano_minimo ?? 0,
+      anoMaximo: data?.ano_maximo ?? 0,
+    };
   } catch (erro) {
     throw new Error(mensagemDeErro(erro, "Erro ao carregar áreas."), {
       cause: erro,

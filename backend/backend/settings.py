@@ -142,6 +142,16 @@ EMBEDDING_DIM = 768
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 
+# --- Provedores de IA ---
+# "1"/"true" habilita o Ollama (modelo local). Em servidores sem recursos,
+# deixe em "0" e use apenas o Gemini: o frontend esconde a opção Ollama e o
+# backend recusa solicitações com provider "ollama".
+OLLAMA_ENABLED = (
+    os.getenv("OLLAMA_ENABLED", "1").strip().lower()
+    in ("1", "true", "yes", "on")
+)
+
+
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": [
         "rest_framework.authentication.SessionAuthentication",
@@ -158,6 +168,7 @@ REST_FRAMEWORK = {
         "agente": "20/min",
         "modelos": "10/min",
         "pesquisa": "60/min",
+        "login": "20/min",
     },
 }
 
