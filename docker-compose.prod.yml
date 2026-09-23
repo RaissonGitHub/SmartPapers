@@ -26,6 +26,9 @@ services:
       - ./backend/.env
     environment:
       POSTGRES_HOST: db
+      HF_HOME: /var/lib/huggingface
+    volumes:
+      - hf_cache:/var/lib/huggingface
     depends_on:
       db:
         condition: service_healthy
@@ -58,3 +61,4 @@ services:
 
 volumes:
   pgdata:
+  hf_cache:
