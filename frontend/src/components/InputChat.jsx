@@ -123,11 +123,15 @@ export default function InputChat({
           .trim();
         const anexo = attachments?.[0]?.file ?? arquivo ?? null;
 
-        if (ollamaHabilitado !== true && (!apiKey.trim() || !modelo.trim())) {
+        const precisaChaveGemini = provedorAtivo === "gemini";
+        const semChave =
+          precisaChaveGemini && !apiKeyDefinida && !apiKey.trim();
+        const semModelo = precisaChaveGemini && !modelo.trim();
+        if (semChave || semModelo) {
           setErroModelo(
-            ollamaHabilitado === false
-              ? "Informe a chave de API e selecione um modelo do Gemini antes de enviar."
-              : "Provedor ainda não confirmado pelo servidor. Informe a chave de API e selecione um modelo do Gemini antes de enviar.",
+            semModelo
+              ? "Selecione um modelo do Gemini antes de enviar."
+              : "Informe sua chave de API do Google antes de enviar.",
           );
           return new ReadableStream({
             start(controller) {
@@ -153,8 +157,9 @@ export default function InputChat({
       onArquivoChange,
       onEnviar,
       opcoesModelo,
-      ollamaHabilitado,
+      provedorAtivo,
       apiKey,
+      apiKeyDefinida,
       modelo,
     ],
   );

@@ -33,6 +33,8 @@ export default function SeletorModelo({
   const [erro, setErro] = useState("");
   const [mostrarChave, setMostrarChave] = useState(false);
   const provedorAtivo = ollamaHabilitado === true ? provedor : "gemini";
+  const semChaveGemini =
+    provedorAtivo === "gemini" && !apiKeyDefinida && !apiKey.trim();
 
   const carregarModelos = async () => {
     const chave = (chaveEditada ? apiKey : "").trim();
@@ -217,7 +219,7 @@ export default function SeletorModelo({
           value={modelo}
           label="Modelo do Gemini"
           onChange={(e) => onModeloChange?.(e.target.value)}
-          disabled={carregando || modelos.length === 0}
+          disabled={carregando || modelos.length === 0 || semChaveGemini}
           MenuProps={{
             slotProps: {
               paper: {

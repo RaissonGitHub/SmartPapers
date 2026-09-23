@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   cancelarRequisicao,
-  criarSessao,
   enviarMensagem,
   excluirSessao as excluirSessaoApi,
   listarAreas,
@@ -239,33 +238,6 @@ export default function useConversa() {
         ];
       });
       let idDaSessao = sessaoId;
-      if (!idDaSessao) {
-        try {
-          const nova = await criarSessao(controller.signal);
-          idDaSessao = nova.sessao_id;
-          if (chaveSessaoVisualizadaRef.current === chaveDaSessao) {
-            setSessaoAtiva(nova.id);
-            setSessaoId(nova.sessao_id);
-            setSessoes((prev) => {
-              if (prev.some((s) => s.id === nova.id)) return prev;
-              return [
-                {
-                  id: nova.id,
-                  sessao_id: nova.sessao_id,
-                  titulo: nova.titulo ?? "",
-                  criada_em: nova.criada_em ?? new Date().toISOString(),
-                  total_mensagens: nova.total_mensagens ?? 0,
-                  ultima_mensagem: nova.ultima_mensagem ?? "",
-                },
-                ...prev,
-              ];
-            });
-          }
-        } catch {
-          if (controller.signal.aborted) return;
-          idDaSessao = null;
-        }
-      }
       try {
         const resultado = await enviarMensagem({
           mensagem: conteudo,

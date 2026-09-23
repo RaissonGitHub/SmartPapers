@@ -79,11 +79,8 @@ class AgentChatView(APIView):
         if not provider_request and pref_provider == "ollama" and not ollama_habilitado():
             pref_provider = "gemini"
         provider_name = provider_request or pref_provider or ""
-        api_key = (
-            (request.data.get("api_key") or "").strip()
-            or preferencias.get("pref_api_key")
-            or None
-        )
+        chave_enviada_no_corpo = (request.data.get("api_key") or "").strip()
+        api_key = chave_enviada_no_corpo or preferencias.get("pref_api_key") or None
         modelo = (
             (request.data.get("modelo") or "").strip()
             or preferencias.get("pref_modelo")
@@ -124,10 +121,13 @@ class AgentChatView(APIView):
             )
 
         if api_key and not validar_chave_api(api_key):
-            return Response(
-                {"erro": "Chave de API inválida. Verifique e tente novamente."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+            if not chave_enviada_no_corpo:
+                api_key = None
+            else:
+                return Response(
+                    {"erro": "Chave de API inválida. Verifique e tente novamente."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
 
         if pdf:
             nome_pdf = getattr(pdf, "name", "") or ""

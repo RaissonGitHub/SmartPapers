@@ -2,6 +2,8 @@
 
 import uuid
 
+from django.db import transaction
+
 from chat.enumerations import Papel
 from chat.models import Mensagem, Sessao
 
@@ -103,6 +105,7 @@ def historico_sessao(sessao: Sessao, max_mensagens: int = 20) -> list[dict]:
     return historico
 
 
+@transaction.atomic
 def processar_e_salvar(
     mensagem: str,
     sessao_key=None,

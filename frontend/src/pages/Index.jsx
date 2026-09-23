@@ -61,13 +61,16 @@ const [modelo, setModelo] = useState("");
         if (!ollama_on && carregadas.provider === "ollama") {
           carregadas.provider = "gemini";
         }
+        const api_key_definida = Boolean(
+          prefs?.api_key_definida ?? !!carregadas.api_key,
+        );
         ultimasPrefsRef.current = carregadas;
         setOllamaHabilitado(Boolean(ollama_on));
         setProvedor(carregadas.provider);
         setApiKey(carregadas.api_key);
-        setApiKeyDefinida(Boolean(prefs?.api_key_definida ?? !!carregadas.api_key));
+        setApiKeyDefinida(api_key_definida);
         setChaveEditada(false);
-        setModelo(carregadas.modelo);
+        setModelo(api_key_definida ? carregadas.modelo : "");
         prefsCarregadasRef.current = true;
       })
       .catch(() => {
@@ -88,7 +91,7 @@ const [modelo, setModelo] = useState("");
       salvarPreferencias(atuais)
         .then((prefs) => {
           setApiKeyDefinida(Boolean(prefs?.api_key_definida));
-          setChaveEditada(false);
+          ultimasPrefsRef.current = atuais;
         })
         .catch(() => {});
     }, 400);

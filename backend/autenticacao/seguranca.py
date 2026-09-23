@@ -7,8 +7,8 @@ exposta em texto puro fora do servidor.
 
 import re
 
-_PADRAO_CHAVE_API = re.compile(r"^[A-Za-z0-9_\-]{20,256}$")
-_PADRAO_CHAVE_GOOGLE = re.compile(r"AIza[0-9A-Za-z_\-]+")
+_PADRAO_CHAVE_API = re.compile(r"^[A-Za-z0-9_\-.]{20,256}$")
+_PADRAO_CHAVE_GOOGLE = re.compile(r"(?:AIza|AQ\.)[0-9A-Za-z_\-.]{15,}")
 
 
 def validar_chave_api(chave: str) -> bool:

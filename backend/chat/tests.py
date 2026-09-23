@@ -236,6 +236,34 @@ class AgentePersistenciaTestCase(TestCase):
         self.assertEqual(mock_rag.call_args.kwargs["ano_fim"], 2022)
         self.assertEqual(mock_rag.call_args.kwargs["area"], "medicine")
 
+    @patch("chat.services.conversa_service.processar_mensagem_usuario")
+    def test_erro_do_provedor_nao_cria_sessao_fantasma(self, mock_rag):
+        from google.genai import errors as erros_genai
+
+        mock_rag.side_effect = erros_genai.ClientError(
+            503,
+            {
+                "error": {
+                    "code": 503,
+                    "message": "The model is overloaded.",
+                    "status": "UNAVAILABLE",
+                }
+            },
+        )
+        resposta = self.client.post(
+            "/chat/agente/",
+            {
+                "mensagem": "oi",
+                "provider": "gemini",
+                "api_key": "AIzaSytesteCHAVESECRETA1234",
+                "modelo": "gemini-3.8-flash",
+            },
+            format="json",
+        )
+        self.assertEqual(resposta.status_code, 502)
+        self.assertEqual(Sessao.objects.count(), 0)
+        self.assertEqual(Mensagem.objects.count(), 0)
+
     def test_areas_exige_autenticacao(self):
         anonimo = APIClient()
         resposta = anonimo.get("/chat/areas/")
@@ -640,6 +668,24 @@ class AgenteErroProvedorTestCase(TestCase):
         self.assertEqual(resposta.status_code, 502)
         self.assertIn("Erro na chamada ao Gemini", resposta.data["erro"])
         self.assertNotIn("AIzaSytesteCHAVESECRETA1234", resposta.data["erro"])
+
+    @patch("chat.views.agent_chat.processar_e_salvar")
+    def test_chave_antiga_invalida_na_sessao_nao_bloqueia_envio(self, mock_processar):
+        mock_processar.return_value = {
+            "sessao": 9,
+            "sessao_id": "abc-invalida",
+            "mensagens": [],
+        }
+        sessao = self.client.session
+        sessao["pref_provider"] = "gemini"
+        sessao["pref_api_key"] = "AIza\u2022\u2022\u2022\u2022wxyz"
+        sessao["pref_modelo"] = "gemini-3.8-flash"
+        sessao.save()
+
+        resposta = self.client.post("/chat/agente/", {"mensagem": "oi"}, format="json")
+
+        self.assertEqual(resposta.status_code, 200)
+        self.assertEqual(resposta.data["sessao_id"], "abc-invalida")
 
 
 class AgenteValidacaoEntradaTestCase(TestCase):

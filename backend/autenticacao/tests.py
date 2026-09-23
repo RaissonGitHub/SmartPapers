@@ -55,6 +55,41 @@ class PreferenciasSegurancaTests(TestCase):
             "AIzaSyCHAVEAPTATESTESECRETA1234",
         )
 
+    def test_get_limpa_modelo_antigo_quando_nao_ha_chave(self):
+        sessao = self.client.session
+        sessao["pref_provider"] = "gemini"
+        sessao["pref_modelo"] = "gemini-3.8-flash"
+        sessao.save()
+        resposta = self.client.get("/auth/preferencias/")
+        self.assertEqual(resposta.status_code, 200)
+        self.assertFalse(resposta.data["api_key_definida"])
+        self.assertEqual(resposta.data["modelo"], "")
+
+    def test_get_trata_chave_antiga_mascarada_como_ausente(self):
+        sessao = self.client.session
+        sessao["pref_provider"] = "gemini"
+        sessao["pref_api_key"] = "AIza\u2022\u2022\u2022\u2022wxyz"
+        sessao["pref_modelo"] = "gemini-3.8-flash"
+        sessao.save()
+        resposta = self.client.get("/auth/preferencias/")
+        self.assertEqual(resposta.status_code, 200)
+        self.assertFalse(resposta.data["api_key_definida"])
+        self.assertEqual(resposta.data["api_key"], "")
+        self.assertEqual(resposta.data["modelo"], "")
+
+    def test_put_com_chave_vazia_limpa_modelo(self):
+        sessao = self.client.session
+        sessao["pref_provider"] = "gemini"
+        sessao["pref_api_key"] = ""
+        sessao["pref_modelo"] = "gemini-3.8-flash"
+        sessao.save()
+        resposta = self.client.put(
+            "/auth/preferencias/", {"provider": "gemini", "api_key": ""}, format="json"
+        )
+        self.assertEqual(resposta.status_code, 200)
+        self.assertEqual(self.client.session.get("pref_modelo"), "")
+        self.assertEqual(resposta.data["modelo"], "")
+
     def test_put_aceita_chave_valida_e_responde_mascarada(self):
         resposta = self.client.put(
             "/auth/preferencias/",
@@ -72,6 +107,17 @@ class PreferenciasSegurancaTests(TestCase):
             self.client.session.get("pref_api_key"),
             "AIzaSyCHAVENOVATESTESECRETA123",
         )
+
+    def test_put_aceita_chave_do_google_com_ponto_e_digito_no_fim(self):
+        chave = "AQ.Ab8RN6K_exemploChaveFalsaTeste1234567890_Kk"
+        resposta = self.client.put(
+            "/auth/preferencias/",
+            {"provider": "gemini", "api_key": chave, "modelo": "gemini-3.8-flash"},
+            format="json",
+        )
+        self.assertEqual(resposta.status_code, 200)
+        self.assertEqual(self.client.session.get("pref_api_key"), chave)
+        self.assertNotIn(chave, resposta.data["api_key"])
 
     def test_registro_nao_revela_existencia_de_usuario(self):
         User.objects.create_user(username="novo", password="senha123")

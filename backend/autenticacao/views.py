@@ -132,8 +132,13 @@ class PreferenciasView(APIView):
             provider = "gemini"
         api_key = sessao.get("pref_api_key") or ""
         modelo = sessao.get("pref_modelo") or ""
+        if api_key and not validar_chave_api(api_key):
+            api_key = ""
+            sessao["pref_api_key"] = ""
         if provider == "ollama":
             api_key = ""
+            modelo = ""
+        elif not api_key:
             modelo = ""
         return {
             "provider": provider,
@@ -174,6 +179,8 @@ class PreferenciasView(APIView):
                         status=status.HTTP_400_BAD_REQUEST,
                     )
                 sessao["pref_api_key"] = api_key
+                if not api_key:
+                    sessao["pref_modelo"] = ""
             if "modelo" in request.data:
                 sessao["pref_modelo"] = (request.data.get("modelo") or "").strip()
 
