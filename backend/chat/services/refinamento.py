@@ -3,20 +3,16 @@ Refinamento da busca semântica.
 
 Etapas que elevam a qualidade da recuperação vetorial:
 
-  1. classificar_necessidade_busca : decide via LLM se a mensagem exige busca
-     de artigos ou pode ser respondida diretamente.
-  2. reformular_busca               : converte o pedido do usuário (PT) em uma
-     query acadêmica em INGLÊS estilo 'título de paper'.
-  3. rerank_por_aderencia           : reordena/filtra o top-N mergido da busca
-     dupla pela aderência REAL à pergunta.
+  1. reformular_busca     : converte o pedido do usuário (PT) em uma query
+     acadêmica em INGLÊS estilo 'título de paper'.
+  2. rerank_por_aderencia : reordena/filtra o top-N mergido da busca dupla
+     pela aderência REAL à pergunta.
 """
 
-import os
 import re
 
 from .providers import LLMProvider, usar_provedor
 
-MODELO_OLLAMA = os.getenv("MODELO_OLLAMA", "qwen3:8b")
 MARCADOR_ADERENTES = "ARTIGOS_ADERENTES"
 
 _RE_ADERENTES = re.compile(rf"{MARCADOR_ADERENTES}\s*:\s*\[([^\]]*)\]", re.IGNORECASE)
@@ -34,19 +30,6 @@ PROMPT_REFORMULAR = (
     "'Sustainable Industrial Chemistry: Green Technologies and Environmental Practices'\n"
     "- 'procure sobre smartphones' -> "
     "'Smartphone Use and Its Impact on Health and Daily Life'"
-)
-
-PROMPT_DECIDIR_BUSCA = (
-    "Você decide se a mensagem de um usuário, enviada a um assistente acadêmico de busca de "
-    "artigos científicos, deve disparar uma busca por artigos no banco ou pode ser respondida "
-    "diretamente.\n"
-    "Responda APENAS com UMA palavra: buscar ou responder.\n\n"
-    "- responda 'buscar' quando o usuário: pedir artigos, papers, estudos, referências ou "
-    "publicações; perguntar algo que só a literatura científica responde; ou enviar apenas "
-    "um tópico solto indicando que quer achar artigos sobre o assunto.\n"
-    "- responda 'responder' quando for uma dúvida de conhecimento geral ou conceitual, que dá "
-    "para responder sem fontes.\n"
-    "Em caso de dúvida, prefira 'responder' a não ser que haja interesse explícito em fontes."
 )
 
 PROMPT_RERANK = f"""Você é um revisor de relevância bibliográfica.
@@ -114,37 +97,6 @@ def reformular_busca(texto: str, provedor: LLMProvider | None = None) -> str:
 
     print(f"[REFINAMENTO] Mantendo texto original: {texto.strip()}")
     return texto.strip()
-
-
-def classificar_necessidade_busca(
-    texto: str, provedor: LLMProvider | None = None
-) -> bool | None:
-    """Decide se a mensagem exige busca científica ou resposta direta."""
-    p = _resolver_provedor(provedor)
-    if not texto or not texto.strip():
-        return False
-
-    print(f"[REFINAMENTO] Classificando necessidade de busca: {texto[:120]}...")
-    try:
-        resposta = p.chat_simple(
-            messages=[
-                {"role": "system", "content": PROMPT_DECIDIR_BUSCA},
-                {"role": "user", "content": texto},
-            ],
-            temperature=0,
-        )
-        escolha = _limpar_pensamento(resposta or "").lower()
-        primeira = re.sub(r"[^a-zà-ú]", "", escolha.split(" ", 1)[0]) if escolha else ""
-        print(f"[REFINAMENTO] Resposta do classificador: {escolha!r}")
-        if primeira == "buscar":
-            return True
-        if primeira in ("responder", "aprofundar"):
-            return False
-    except Exception as exc:
-        print(f"[REFINAMENTO] Erro ao classificar busca: {exc}")
-        pass
-
-    return None
 
 
 def _formatar_artigos(artigos: list[dict]) -> str:

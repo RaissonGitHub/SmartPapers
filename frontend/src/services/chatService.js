@@ -63,20 +63,6 @@ export async function enviarMensagem({
   }
 }
 
-export async function criarSessao(signal = null) {
-  const config = { timeout: 15000 };
-  if (signal) config.signal = signal;
-  try {
-    const { data } = await api.post("/chat/sessoes/", {}, config);
-    return data;
-  } catch (erro) {
-    if (erro?.code === "ERR_CANCELED") throw erro;
-    throw new Error(mensagemDeErro(erro, "Erro ao criar a sessão."), {
-      cause: erro,
-    });
-  }
-}
-
 export async function cancelarRequisicao(requisicao_id) {
   try {
     const { data } = await api.post("/chat/cancelar/", { requisicao_id });
