@@ -14,9 +14,7 @@ class SessaoListCreateView(generics.ListCreateAPIView):
     """
 
     def get_queryset(self):
-        return Sessao.objects.filter(usuario=self.request.user).order_by(
-            "-criada_em"
-        )
+        return Sessao.objects.filter(usuario=self.request.user).order_by("-criada_em")
 
     def get_serializer_class(self):
         if self.request.method == "GET":

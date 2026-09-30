@@ -1,6 +1,8 @@
 import MenuIcon from "@mui/icons-material/Menu";
+import Tooltip from "@mui/material/Tooltip";
+import HelpOutlineIcon from "@mui/icons-material/HelpOutline";
 
-export default function Nav({ className, usuario, onSair, onMenu }) {
+export default function Nav({ className, usuario, onSair, onMenu, onTutorial }) {
   return (
     <nav
       className={`flex h-12 shrink-0 flex-row items-center justify-between border-b-2 border-b-borda bg-fundo ${className}`}
@@ -25,6 +27,16 @@ export default function Nav({ className, usuario, onSair, onMenu }) {
         <span className="whitespace-nowrap text-sm font-semibold dark:text-white">
           {usuario}
         </span>
+        <Tooltip title="Como usar a plataforma">
+          <button
+            type="button"
+            onClick={onTutorial}
+            aria-label="Abrir tutorial da plataforma"
+            className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-full border border-borda text-[#888] transition-colors hover:border-[#888] hover:text-white"
+          >
+            <HelpOutlineIcon fontSize="small" />
+          </button>
+        </Tooltip>
         <button
           onClick={onSair}
           className="cursor-pointer rounded-full border border-borda px-3 py-1 text-xs text-[#888] transition-colors hover:border-[#888] hover:text-white"

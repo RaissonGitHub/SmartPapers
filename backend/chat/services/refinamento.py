@@ -93,7 +93,6 @@ def reformular_busca(texto: str, provedor: LLMProvider | None = None) -> str:
             return query
     except Exception as exc:
         print(f"[REFINAMENTO] Erro ao reformular busca: {exc}")
-        pass
 
     print(f"[REFINAMENTO] Mantendo texto original: {texto.strip()}")
     return texto.strip()
@@ -151,7 +150,9 @@ def rerank_por_aderencia(
         print(f"[REFINAMENTO] Menos de 2 artigos; retornando {len(artigos)} itens.")
         return artigos[:top_n]
 
-    print(f"[REFINAMENTO] Reranking de {len(artigos)} artigos para pergunta: {pergunta[:120]}...")
+    print(
+        f"[REFINAMENTO] Reranking de {len(artigos)} artigos para pergunta: {pergunta[:120]}..."
+    )
     contexto = _formatar_artigos(artigos)
     prompt = f"{contexto}\n\nPergunta do usuário: {pergunta}"
 

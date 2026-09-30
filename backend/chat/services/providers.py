@@ -1,10 +1,7 @@
 """Fábrica de provedores de LLM.
 
 Ponto único que resolve o provedor pelo nome. Cada provedor vive em um módulo
-próprio e carrega seu SDK de forma preguiçosa: Gemini não depende do Ollama e
-vice-versa. Não há fallback implícito entre eles — o nome escolhido é atendido
-exatamente ou um erro é retornado.
-"""
+próprio e carrega seu SDK"""
 
 import os
 
@@ -15,13 +12,13 @@ from .gemini_provider import GeminiProvider, listar_modelos_gemini
 from .ollama_provider import OllamaProvider
 
 __all__ = [
+    "GeminiProvider",
     "LLMProvider",
     "OllamaProvider",
-    "GeminiProvider",
-    "listar_modelos_gemini",
     "criar_provedor",
-    "usar_provedor",
+    "listar_modelos_gemini",
     "ollama_habilitado",
+    "usar_provedor",
 ]
 
 
@@ -38,8 +35,7 @@ def criar_provedor(
     """Cria o provedor pelo nome ('ollama' | 'gemini').
 
     Se `nome` for ausente, usa a variável de ambiente LLM_PROVIDER (padrão
-    'ollama'). Nomes desconhecidos levantam erro em vez de cair em outro provedor.
-    Se o Ollama estiver desativado (OLLAMA_ENABLED=0), pedidos por 'ollama'
+    'ollama'). Se o Ollama estiver desativado (OLLAMA_ENABLED=0), pedidos por 'ollama'
     levantam erro orientando o uso do Gemini.
     """
     provider = (nome or os.getenv("LLM_PROVIDER", "ollama")).strip().lower()
@@ -60,13 +56,9 @@ def criar_provedor(
         )
 
     if provider == "ollama":
-        return OllamaProvider(
-            modelo=modelo or os.getenv("MODELO_OLLAMA", "qwen3:8b")
-        )
+        return OllamaProvider(modelo=modelo or os.getenv("MODELO_OLLAMA", "qwen3:8b"))
 
-    raise ValueError(
-        f"Provedor desconhecido: {provider!r}. Use 'gemini' ou 'ollama'."
-    )
+    raise ValueError(f"Provedor desconhecido: {provider!r}. Use 'gemini' ou 'ollama'.")
 
 
 _padrao: LLMProvider | None = None
@@ -74,9 +66,6 @@ _padrao: LLMProvider | None = None
 
 def usar_provedor(provider: LLMProvider | None = None) -> LLMProvider:
     """Retorna o provedor informado ou o padrão configurado.
-
-    O padrão só é criado no primeiro uso real (não no import do módulo), para
-    que instalar/rodar apenas Google ou apenas Ollama não requeira o outro SDK.
     """
     global _padrao
     if provider is not None:

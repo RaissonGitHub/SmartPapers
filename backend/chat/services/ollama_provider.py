@@ -1,12 +1,8 @@
-"""Provedor Ollama (modelo local), totalmente isolado.
-
-Importa o pacote `ollama` somente na instanciação, para que quem usa apenas
-Gemini não precise tê-lo instalado.
-"""
+"""Provedor Ollama (modelo local), totalmente isolado."""
 
 import os
 from collections.abc import Callable
-from typing import Any
+from typing import Any, ClassVar
 
 from .base import LLMProvider
 from .cancelamento import checar_cancelamento
@@ -15,7 +11,13 @@ from .cancelamento import checar_cancelamento
 class OllamaProvider(LLMProvider):
     """Provedor usando ollama.chat nativo."""
 
-    _KWARGS_TOPO = {"stream", "think", "logprobs", "top_logprobs", "format"}
+    _KWARGS_TOPO: ClassVar[set[str]] = {
+        "stream",
+        "think",
+        "logprobs",
+        "top_logprobs",
+        "format",
+    }
 
     def __init__(self, modelo: str = "qwen3:8b"):
         self.modelo = modelo

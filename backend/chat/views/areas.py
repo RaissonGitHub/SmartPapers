@@ -1,8 +1,7 @@
-from rest_framework.response import Response
-from rest_framework.views import APIView
-
 from artigos.models.artigo import Artigo
 from artigos.services.buscar_artigos_service import intervalo_anos_artigos
+from rest_framework.response import Response
+from rest_framework.views import APIView
 
 
 class AreasView(APIView):

@@ -8,8 +8,8 @@ class PesquisaSemEmbedding(APIView):
     throttle_scope = "pesquisa"
 
     def post(self, request):
-       
-        embedding =  gerar_embedding(request.data.get('mensagem'))
+
+        embedding = gerar_embedding(request.data.get("mensagem"))
         top_n = request.data.get("top_n")
         ano_inicio = request.data.get("ano_inicio")
         ano_fim = request.data.get("ano_fim")

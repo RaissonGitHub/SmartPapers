@@ -1,3 +1,5 @@
+from typing import ClassVar
+
 from django.conf import settings
 from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.models import User
@@ -63,7 +65,7 @@ class RegistrarView(APIView):
     env (REGISTRO_PUBLICO=0).
     """
 
-    permission_classes = [AllowAny]
+    permission_classes: ClassVar[list] = [AllowAny]
     serializer_class = _RegistroSerializer
     throttle_scope = "registro"
 
@@ -91,7 +93,7 @@ class RegistrarView(APIView):
 class LoginView(APIView):
     """POST /auth/login/  Body: { "username", "password" } -> loga (cookie de sessão)."""
 
-    permission_classes = [AllowAny]
+    permission_classes: ClassVar[list] = [AllowAny]
     serializer_class = _LoginSerializer
     throttle_scope = "login"
 
@@ -125,7 +127,7 @@ class LoginView(APIView):
 class LogoutView(APIView):
     """POST /auth/logout/ -> encerra a sessão (apaga o cookie)."""
 
-    permission_classes = [IsAuthenticated]
+    permission_classes: ClassVar[list] = [IsAuthenticated]
 
     def post(self, request):
         logout(request)
@@ -135,7 +137,7 @@ class LogoutView(APIView):
 class CurrentUserView(APIView):
     """GET /auth/me/ -> dados do usuário logado (401 se não autenticado)."""
 
-    permission_classes = [IsAuthenticated]
+    permission_classes: ClassVar[list] = [IsAuthenticated]
 
     def get(self, request):
         return Response(
@@ -147,7 +149,7 @@ class CurrentUserView(APIView):
 class CsrfView(APIView):
     """GET /auth/csrf/ -> devolve token CSRF e define o cookie correspondente."""
 
-    permission_classes = [AllowAny]
+    permission_classes: ClassVar[list] = [AllowAny]
 
     def get(self, request):
         return Response({"csrfToken": get_token(request)}, status=status.HTTP_200_OK)
@@ -160,7 +162,8 @@ class PreferenciasView(APIView):
     PUT /auth/preferencias/  -> salva as preferências na sessão (Body: { provider, api_key, modelo })
     """
 
-    permission_classes = [IsAuthenticated]
+    permission_classes: ClassVar[list] = [IsAuthenticated]
+
 
     def _ler(self, request):
         sessao = request.session

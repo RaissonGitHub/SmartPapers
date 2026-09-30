@@ -228,7 +228,9 @@ def _buscar_dupla_artigos(
     if consultas_pdf:
         print(f"[RAG] Usando {len(consultas_pdf)} seções do PDF como consultas.")
 
-    consultas = [c for c in (search_title_en, texto_original_usuario) if c and c.strip()]
+    consultas = [
+        c for c in (search_title_en, texto_original_usuario) if c and c.strip()
+    ]
     consultas += consultas_pdf
 
     try:
@@ -349,8 +351,7 @@ def _normalizar_anos_tool_call(args: dict) -> None:
         args["ano_fim"] = maximo
     if inicio_invalido and fim_invalido:
         print(
-            f"[RAG] Intervalo de anos do modelo fora da base; usando "
-            f"{minimo}-{maximo}."
+            f"[RAG] Intervalo de anos do modelo fora da base; usando {minimo}-{maximo}."
         )
 
 

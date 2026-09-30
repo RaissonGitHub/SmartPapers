@@ -1,8 +1,4 @@
-"""Provedor Google Gemini (API oficial google-genai), totalmente isolado.
-
-Importa o pacote `google-genai` apenas quando necessário (instanciação e
-chamadas), para que quem usa apenas Ollama não precise tê-lo instalado.
-"""
+"""Provedor Google Gemini  totalmente isolado."""
 
 import inspect
 from collections.abc import Callable
@@ -13,11 +9,7 @@ from .cancelamento import checar_cancelamento
 
 
 def mensagem_chave_invalida(exc) -> str | None:
-    """Devolve mensagem PT-BR amigável para chave de API do Gemini inválida.
-
-    Retorna None quando o erro não indica problema de chave, para que a camada
-    de apresentação decida como tratar. Nunca expõe a própria chave.
-    """
+    """Devolve mensagem PT-BR amigável para chave de API do Gemini inválida."""
     texto = str(getattr(exc, "message", "") or getattr(exc, "body", "") or exc)
     baixo = texto.lower()
     if "api key" not in baixo:
@@ -67,9 +59,7 @@ class GeminiProvider(LLMProvider):
 
     @staticmethod
     def _system_instruction(messages: list[dict]) -> str | None:
-        blocos = [
-            m.get("content", "") for m in messages if m.get("role") == "system"
-        ]
+        blocos = [m.get("content", "") for m in messages if m.get("role") == "system"]
         return "\n\n".join(blocos).strip() or None
 
     @staticmethod
@@ -123,15 +113,11 @@ class GeminiProvider(LLMProvider):
                     },
                 )
             )
-        return (
-            [types.Tool(function_declarations=declaracoes)] if declaracoes else None
-        )
+        return [types.Tool(function_declarations=declaracoes)] if declaracoes else None
 
     @staticmethod
     def _resposta_para_mock(response):
         """Converte a resposta do Gemini no formato esperado pela camada RAG."""
-        from google.genai import types
-
         texto = ""
         tool_calls = []
 
@@ -142,7 +128,7 @@ class GeminiProvider(LLMProvider):
                 )()
 
         for candidate in getattr(response, "candidates", None) or []:
-            for parte in (candidate.content.parts or []):
+            for parte in candidate.content.parts or []:
                 chamada = getattr(parte, "function_call", None)
                 texto_parte = getattr(parte, "text", None)
                 if chamada:
@@ -211,7 +197,7 @@ class GeminiProvider(LLMProvider):
     ) -> Any:
         """Chama o modelo com tool-calling sem executar as ferramentas.
 
-        Retorna resposta com `.message.tool_calls` (mesmo contrato do Ollama);
+        Retorna resposta com `.message.tool_calls`
         a execução das ferramentas fica a cargo da camada RAG.
         """
         from google.genai import types
@@ -251,12 +237,7 @@ class GeminiProvider(LLMProvider):
 def listar_modelos_gemini(api_key: str) -> list[dict]:
     """Lista modelos geradores do Gemini usando a chave fornecida pelo usuário.
 
-    A chave nunca é persistida: o cliente é criado apenas para esta chamada.
-
-    Filtra modelos não utilizáveis para conversas:
-    - "preview" (single-turn apenas, sem multiturn);
-    - gerações aposentadas para contas novas (ex.: gemini-1.x / gemini-2.x).
-    """
+    Filtra modelos não utilizáveis para conversas"""
     from google import genai
 
     client = genai.Client(api_key=api_key)
@@ -270,8 +251,7 @@ def listar_modelos_gemini(api_key: str) -> list[dict]:
         if "preview" in nome_lower:
             continue
         if any(
-            nome_lower.startswith(prefixo)
-            for prefixo in ("gemini-1.", "gemini-2.")
+            nome_lower.startswith(prefixo) for prefixo in ("gemini-1.", "gemini-2.")
         ):
             continue
         modelos.append(

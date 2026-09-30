@@ -1,10 +1,9 @@
 import os
 
+from autenticacao.seguranca import remover_chave_do_texto, validar_chave_api
 from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
-
-from autenticacao.seguranca import remover_chave_do_texto, validar_chave_api
 
 from ..serializers import AgentChatRequestSerializer
 from ..services.cancelamento import (
@@ -23,12 +22,7 @@ MAX_PDF_MB = MAX_PDF_BYTES // (1024 * 1024)
 
 
 def _mensagem_erro_provedor(exc, api_key=None):
-    """Converte exceções de provedores LLM em mensagem amigável (ou None).
-
-    Imports do SDK são feitos aqui (preguiçosos) para manter a isolação entre
-    os provedores: instalar/rodar apenas Google não exige o pacote do Ollama e
-    vice-versa.
-    """
+    """Converte exceções de provedores LLM em mensagem amigável (ou None)."""
     try:
         from google.genai import errors as erros_genai
     except ImportError:
@@ -38,9 +32,7 @@ def _mensagem_erro_provedor(exc, api_key=None):
         mensagem_chave = mensagem_chave_invalida(exc)
         if mensagem_chave:
             return mensagem_chave
-        mensagem = remover_chave_do_texto(
-            (exc.message or str(exc)).strip(), api_key
-        )
+        mensagem = remover_chave_do_texto((exc.message or str(exc)).strip(), api_key)
         return f"Erro na chamada ao Gemini: {mensagem}"
 
     if getattr(type(exc), "__module__", "").startswith("ollama"):
@@ -76,7 +68,11 @@ class AgentChatView(APIView):
         preferencias = request.session
         provider_request = (request.data.get("provider") or "").strip().lower()
         pref_provider = (preferencias.get("pref_provider") or "").lower()
-        if not provider_request and pref_provider == "ollama" and not ollama_habilitado():
+        if (
+            not provider_request
+            and pref_provider == "ollama"
+            and not ollama_habilitado()
+        ):
             pref_provider = "gemini"
         provider_name = provider_request or pref_provider or ""
         chave_enviada_no_corpo = (request.data.get("api_key") or "").strip()
@@ -161,15 +157,15 @@ class AgentChatView(APIView):
 
         if requisicao and requisicao not in ("busca", "resposta"):
             return Response(
-                {"erro": "O campo 'requisicao' deve ser 'busca', 'resposta' ou ausente."},
+                {
+                    "erro": "O campo 'requisicao' deve ser 'busca', 'resposta' ou ausente."
+                },
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
         try:
             if provider_name:
-                provedor = criar_provedor(
-                    provider_name, api_key=api_key, modelo=modelo
-                )
+                provedor = criar_provedor(provider_name, api_key=api_key, modelo=modelo)
             elif api_key or modelo:
                 provedor = criar_provedor("gemini", api_key=api_key, modelo=modelo)
             else:

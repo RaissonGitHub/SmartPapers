@@ -2,11 +2,11 @@
 
 import logging
 
+from autenticacao.seguranca import remover_chave_do_texto, validar_chave_api
 from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from autenticacao.seguranca import remover_chave_do_texto, validar_chave_api
 from ..services.gemini_provider import mensagem_chave_invalida
 from ..services.providers import listar_modelos_gemini
 
@@ -19,7 +19,9 @@ def _sanitizar_mensagem(erro, api_key: str) -> str:
     if mensagem_chave:
         return mensagem_chave
     texto = str(getattr(erro, "body", "") or erro)
-    return remover_chave_do_texto(texto.strip(), api_key) or "Falha ao listar os modelos."
+    return (
+        remover_chave_do_texto(texto.strip(), api_key) or "Falha ao listar os modelos."
+    )
 
 
 class ListarModelosView(APIView):

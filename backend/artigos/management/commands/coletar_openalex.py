@@ -1,6 +1,4 @@
 """
-Management command para coletar artigos do OpenAlex e gerar embeddings.
-
 Uso:
     python manage.py coletar_openalex
     python manage.py coletar_openalex --total 10000
@@ -9,20 +7,20 @@ Uso:
     python manage.py coletar_openalex --apenas-embeddings  # só gera embeddings dos que faltam
 
 Requer a variável de ambiente OPENALEX_API_KEY (chave gratuita em
-https://openalex.org/settings/api). Desde fev/2026 a OpenAlex exige API key
-em todas as requisições — o antigo parâmetro `mailto` foi descontinuado.
+https://openalex.org/settings/api).
 """
 
 import os
 import time
 
 import requests
-from artigos.models import Artigo, ArtigoAutor, Autor
 from django.core.management.base import BaseCommand
 
+from artigos.models import Artigo, ArtigoAutor, Autor
+
 OPENALEX_URL = "https://api.openalex.org/works"
-BATCH_SIZE = 100  # máximo atual permitido pelo OpenAlex por página (era 200)
-EMBED_BATCH = 32  # artigos por lote de embedding (limitado pela RAM)
+BATCH_SIZE = 100  # máximo atual permitido pelo OpenAlex por página
+EMBED_BATCH = 32  # artigos por lote de embedding
 
 
 def carregar_modelo():
@@ -30,11 +28,8 @@ def carregar_modelo():
     Wrapper do método oficial de embedding do SPECTER2 (adapter `proximity`,
     embedding CLS, com `[SEP]`, sem token_type_ids) — o MESMO usado pelas
     queries em runtime (`gerar_embedding_service`).
-
-    Mantém a interface `.encode(textos, ...)` usada pelo fluxo de coleta.
     """
     from ...services.gerar_embedding_service import (
-        _texto_embedding,
         gerar_embedding_lote,
     )
 
@@ -79,12 +74,7 @@ def reconstruir_resumo(abstract_inverted_index):
 
 def extrair_area(work):
     """
-    Extrai a área do conhecimento principal do artigo via `primary_topic`.
-
-    O campo `concepts` foi depreciado pela OpenAlex em favor de `topics`
-    (hierarquia: domain -> field -> subfield -> topic). Usamos `field`
-    como equivalente aproximado ao nível de granularidade que os
-    `concepts` de level<=1 davam antes.
+    Extrai a área do conhecimento principal do artigo `primary_topic`.
     """
     topic = work.get("primary_topic")
     if not topic:
@@ -197,15 +187,15 @@ class Command(BaseCommand):
 
         if not apenas_embeddings and not api_key:
             self.stderr.write(
-                "⚠️  OPENALEX_API_KEY não definida. Desde fev/2026 a OpenAlex exige "
-                "API key em todas as requisições (chave gratuita em "
+                "⚠️  OPENALEX_API_KEY não definida."
+                "(chave gratuita em "
                 "https://openalex.org/settings/api). Requisições sem key podem "
                 "falhar ou cair em limites muito mais restritos."
             )
 
         modelo = carregar_modelo()
 
-        # ── Modo: apenas gerar embeddings pendentes ──────────────────────────
+        # apenas gerar embeddings pendentes 
         if apenas_embeddings:
             self.stdout.write("🔍 Buscando artigos sem embedding...")
             pendentes = list(Artigo.objects.filter(embedding=None))
@@ -214,7 +204,7 @@ class Command(BaseCommand):
             self.stdout.write(self.style.SUCCESS("✅ Embeddings concluídos."))
             return
 
-        # ── Modo: coletar + embeddings ────────────────────────────────────────
+        # coletar + embeddings 
         filtros = (
             f"publication_year:{ano_inicio}-{ano_fim},has_abstract:true,type:article"
         )

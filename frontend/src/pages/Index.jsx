@@ -4,6 +4,7 @@ import Drop from "../components/Drop";
 import InputChat from "../components/InputChat";
 import Nav from "../components/Nav";
 import Sidebar from "../components/Sidebar";
+import TutorialModal from "../components/TutorialModal";
 import { obterPreferencias, salvarPreferencias } from "../services/authService";
 import useConversa from "../hooks/useConversa";
 
@@ -36,6 +37,7 @@ export default function Index({ usuario, onSair }) {
   const [arquivo, setArquivo] = useState(null);
   const [sidebarAberta, setSidebarAberta] = useState(false);
   const [sidebarRecolhida, setSidebarRecolhida] = useState(false);
+  const [tutorialAberto, setTutorialAberto] = useState(false);
   const [provedor, setProvedor] = useState("gemini");
 const [apiKey, setApiKey] = useState("");
 const [apiKeyDefinida, setApiKeyDefinida] = useState(false);
@@ -111,6 +113,7 @@ const [modelo, setModelo] = useState("");
           usuario={usuario}
           onSair={onSair}
           onMenu={() => setSidebarAberta(true)}
+          onTutorial={() => setTutorialAberto(true)}
         />
         <div
           className={`relative grid flex-1 grid-cols-1 overflow-hidden ${sidebarRecolhida ? "lg:grid-cols-[4rem_minmax(0,1fr)]" : "lg:grid-cols-[18rem_minmax(0,1fr)]"}`}
@@ -182,6 +185,10 @@ const [modelo, setModelo] = useState("");
           </div>
         </div>
       </div>
+      <TutorialModal
+        open={tutorialAberto}
+        onClose={() => setTutorialAberto(false)}
+      />
     </>
   );
 }

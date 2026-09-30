@@ -47,7 +47,7 @@ def remover_ultima_edicao(sessao: Sessao) -> None:
     """Remove a última troca usuário/modelo para dar lugar à edição enviada.
 
     A resposta do modelo só é apagada quando ela é de fato a última mensagem
-    da sessão (ou seja, responde à última pergunta). Se a última mensagem for
+    da sessão. Se a última mensagem for
     do próprio usuário (sem resposta), apenas ela é substituída.
     """
     ultima = sessao.mensagens.order_by("criada_em", "id").last()

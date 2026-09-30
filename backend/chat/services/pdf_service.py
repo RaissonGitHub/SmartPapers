@@ -3,9 +3,8 @@
 import os
 import re
 
-import pymupdf
 import numpy as np
-
+import pymupdf
 from artigos.services.gerar_embedding_service import gerar_embedding_lote
 
 from .cancelamento import checar_cancelamento
@@ -245,9 +244,7 @@ def secoes_relevantes(
         print(f"[PDF] Falha ao embeddar seções/consultas: {exc}")
         return secoes[:limite]
 
-    norm_secoes = vetores_secoes / np.linalg.norm(
-        vetores_secoes, axis=1, keepdims=True
-    )
+    norm_secoes = vetores_secoes / np.linalg.norm(vetores_secoes, axis=1, keepdims=True)
     norm_consultas = vetores_consultas / np.linalg.norm(
         vetores_consultas, axis=1, keepdims=True
     )
@@ -281,11 +278,7 @@ def processar_pdf(
 
     secoes = secoes_processadas(texto, provedor)
     consultas_limpas = [c for c in consultas if c and c.strip()]
-    relevantes = (
-        secoes_relevantes(secoes, consultas_limpas)
-        if consultas_limpas
-        else []
-    )
+    relevantes = secoes_relevantes(secoes, consultas_limpas) if consultas_limpas else []
     if not relevantes and secoes:
         relevantes = secoes[:SECOES_TOP_K]
 
