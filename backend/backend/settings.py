@@ -42,9 +42,7 @@ if not SECRET_KEY:
         )
 
 ALLOWED_HOSTS = [
-    h.strip()
-    for h in os.getenv("DJANGO_ALLOWED_HOSTS", "").split(",")
-    if h.strip()
+    h.strip() for h in os.getenv("DJANGO_ALLOWED_HOSTS", "").split(",") if h.strip()
 ]
 
 DJANGO_ADMIN_URL = os.getenv("DJANGO_ADMIN_URL", "admin/").strip("/")
@@ -181,9 +179,11 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 # "1"/"true" habilita o Ollama (modelo local). Em servidores sem recursos,
 # deixe em "0" e use apenas o Gemini: o frontend esconde a opção Ollama e o
 # backend recusa solicitações com provider "ollama".
-OLLAMA_ENABLED = (
-    os.getenv("OLLAMA_ENABLED", "1").strip().lower()
-    in ("1", "true", "yes", "on")
+OLLAMA_ENABLED = os.getenv("OLLAMA_ENABLED", "1").strip().lower() in (
+    "1",
+    "true",
+    "yes",
+    "on",
 )
 
 
@@ -243,14 +243,12 @@ SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 # Padrão seguro: quando DEBUG=False, cookies de sessão/CSRF só via HTTPS e
 # redirecionamento para HTTPS. Pode ser desligado com env em infraestrutura
 # que termina TLS externamente.
-SESSION_COOKIE_SECURE = _env_bool(
-    "DJANGO_SECURE_COOKIES", "false" if DEBUG else "true"
-)
-CSRF_COOKIE_SECURE = _env_bool(
-    "DJANGO_SECURE_COOKIES", "false" if DEBUG else "true"
-)
+SESSION_COOKIE_SECURE = _env_bool("DJANGO_SECURE_COOKIES", "false" if DEBUG else "true")
+CSRF_COOKIE_SECURE = _env_bool("DJANGO_SECURE_COOKIES", "false" if DEBUG else "true")
 SECURE_SSL_REDIRECT = _env_bool("DJANGO_SSL_REDIRECT", "false" if DEBUG else "true")
-SECURE_HSTS_SECONDS = int(os.getenv("DJANGO_HSTS_SECONDS", "31536000" if not DEBUG else "0"))
+SECURE_HSTS_SECONDS = int(
+    os.getenv("DJANGO_HSTS_SECONDS") or ("31536000" if not DEBUG else "0")
+)
 SECURE_HSTS_INCLUDE_SUBDOMAINS = True
 SECURE_HSTS_PRELOAD = True
 SECURE_CONTENT_TYPE_NOSNIFF = True

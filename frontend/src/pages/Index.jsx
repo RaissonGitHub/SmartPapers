@@ -8,7 +8,12 @@ import TutorialModal from "../components/TutorialModal";
 import { obterPreferencias, salvarPreferencias } from "../services/authService";
 import useConversa from "../hooks/useConversa";
 
-export default function Index({ usuario, onSair }) {
+export default function Index({
+  usuario,
+  onSair,
+  tutorialVisto = null,
+  onTutorialVisto,
+}) {
   const {
     mensagens,
     carregando,
@@ -37,7 +42,8 @@ export default function Index({ usuario, onSair }) {
   const [arquivo, setArquivo] = useState(null);
   const [sidebarAberta, setSidebarAberta] = useState(false);
   const [sidebarRecolhida, setSidebarRecolhida] = useState(false);
-  const [tutorialAberto, setTutorialAberto] = useState(false);
+  const [tutorialSolicitado, setTutorialSolicitado] = useState(false);
+  const tutorialAberto = tutorialSolicitado || tutorialVisto === false;
   const [provedor, setProvedor] = useState("gemini");
 const [apiKey, setApiKey] = useState("");
 const [apiKeyDefinida, setApiKeyDefinida] = useState(false);
@@ -113,7 +119,7 @@ const [modelo, setModelo] = useState("");
           usuario={usuario}
           onSair={onSair}
           onMenu={() => setSidebarAberta(true)}
-          onTutorial={() => setTutorialAberto(true)}
+          onTutorial={() => setTutorialSolicitado(true)}
         />
         <div
           className={`relative grid flex-1 grid-cols-1 overflow-hidden ${sidebarRecolhida ? "lg:grid-cols-[4rem_minmax(0,1fr)]" : "lg:grid-cols-[18rem_minmax(0,1fr)]"}`}
@@ -187,7 +193,8 @@ const [modelo, setModelo] = useState("");
       </div>
       <TutorialModal
         open={tutorialAberto}
-        onClose={() => setTutorialAberto(false)}
+        onClose={() => setTutorialSolicitado(false)}
+        aoConcluir={() => onTutorialVisto?.(true)}
       />
     </>
   );

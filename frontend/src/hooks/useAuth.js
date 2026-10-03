@@ -1,34 +1,93 @@
-import { useCallback, useEffect, useState } from "react";
-import { entrar, me, registrar, sair } from "../services/authService";
+import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  entrar,
+  me,
+  obterTutorial,
+  registrar,
+  sair,
+  salvarTutorial,
+} from "../services/authService";
 
 export default function useAuth() {
   const [usuario, setUsuario] = useState(null);
   const [checando, setChecando] = useState(true);
+  const [tutorialVisto, setTutorialVisto] = useState(null);
+  const ativoRef = useRef(true);
+  const marcadoRef = useRef(false);
+
+  useEffect(() => {
+    ativoRef.current = true;
+    return () => {
+      ativoRef.current = false;
+    };
+  }, []);
+
+  const carregarTutorial = useCallback(async () => {
+    try {
+      const dados = await obterTutorial();
+      if (!ativoRef.current) return;
+      // ignora respostas obsoletas que chegarem depois de o usuário já ter visto o tutorial
+      if (marcadoRef.current) return;
+      setTutorialVisto(Boolean(dados?.visto));
+    } catch {
+      if (ativoRef.current && !marcadoRef.current) setTutorialVisto(null);
+    }
+  }, []);
 
   useEffect(() => {
     me()
-      .then((dados) => setUsuario(dados.username))
-      .catch(() => setUsuario(null))
-      .finally(() => setChecando(false));
-  }, []);
+      .then(async (dados) => {
+        if (!ativoRef.current) return;
+        setUsuario(dados.username);
+        await carregarTutorial();
+      })
+      .catch(() => {
+        if (ativoRef.current) setUsuario(null);
+      })
+      .finally(() => {
+        if (ativoRef.current) setChecando(false);
+      });
+  }, [carregarTutorial]);
 
   const login = useCallback(async (username, password) => {
     const dados = await entrar(username, password);
     setUsuario(dados.username);
-  }, []);
+    await carregarTutorial();
+  }, [carregarTutorial]);
 
   const registrarUsuario = useCallback(async (username, password) => {
     const dados = await registrar(username, password);
     setUsuario(dados.username);
-  }, []);
+    await carregarTutorial();
+  }, [carregarTutorial]);
 
   const logout = useCallback(async () => {
     try {
       await sair();
     } finally {
       setUsuario(null);
+      setTutorialVisto(null);
+      marcadoRef.current = false;
     }
   }, []);
 
-  return { usuario, checando, login, registrarUsuario, logout };
+  const marcarTutorialVisto = useCallback(async (visto = true) => {
+    marcadoRef.current = true;
+    setTutorialVisto(visto);
+    try {
+      await salvarTutorial(visto);
+    } catch {
+      // mantém o estado local caso a gravação falhe
+    }
+  }, []);
+
+  return {
+    usuario,
+    checando,
+    tutorialVisto,
+    login,
+    registrarUsuario,
+    logout,
+    marcarTutorialVisto,
+  };
 }

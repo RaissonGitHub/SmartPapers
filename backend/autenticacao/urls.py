@@ -7,6 +7,7 @@ from .views import (
     LogoutView,
     PreferenciasView,
     RegistrarView,
+    TutorialView,
 )
 
 app_name = "autenticacao"
@@ -17,5 +18,6 @@ urlpatterns = [
     path("logout/", LogoutView.as_view(), name="logout"),
     path("me/", CurrentUserView.as_view(), name="me"),
     path("preferencias/", PreferenciasView.as_view(), name="preferencias"),
+    path("tutorial/", TutorialView.as_view(), name="tutorial"),
     path("csrf/", CsrfView.as_view(), name="csrf"),
 ]

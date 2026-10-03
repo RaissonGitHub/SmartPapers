@@ -24,9 +24,6 @@ export default function Nav({ className, usuario, onSair, onMenu, onTutorial }) 
         </span>
       </div>
       <div className="flex items-center gap-3 pe-8">
-        <span className="whitespace-nowrap text-sm font-semibold dark:text-white">
-          {usuario}
-        </span>
         <Tooltip title="Como usar a plataforma">
           <button
             type="button"
@@ -37,6 +34,9 @@ export default function Nav({ className, usuario, onSair, onMenu, onTutorial }) 
             <HelpOutlineIcon fontSize="small" />
           </button>
         </Tooltip>
+        <span className="whitespace-nowrap text-sm font-semibold dark:text-white">
+          {usuario}
+        </span>
         <button
           onClick={onSair}
           className="cursor-pointer rounded-full border border-borda px-3 py-1 text-xs text-[#888] transition-colors hover:border-[#888] hover:text-white"

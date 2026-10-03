@@ -242,7 +242,7 @@ class BloqueioPorIPTests(TestCase):
         for _ in range(4):
             anon.post(
                 "/auth/login/",
-                {"username": "ana", "password": "errada-1"},
+{"username": "ana", "password": "errada-1"},
                 format="json",
             )
         ok = anon.post(
@@ -251,3 +251,51 @@ class BloqueioPorIPTests(TestCase):
             format="json",
         )
         self.assertEqual(ok.status_code, 200)
+
+
+class TutorialTests(TestCase):
+    def setUp(self):
+        self.usuario = User.objects.create_user(
+            username="teste", password="senha-teste-123"
+        )
+        self.client = APIClient()
+        self.client.force_login(self.usuario)
+
+    def test_get_comeca_nao_visto(self):
+        resposta = self.client.get("/auth/tutorial/")
+        self.assertEqual(resposta.status_code, 200)
+        self.assertFalse(resposta.data["visto"])
+
+    def test_put_marca_como_visto(self):
+        resposta = self.client.put("/auth/tutorial/", {"visto": True}, format="json")
+        self.assertEqual(resposta.status_code, 200)
+        self.assertTrue(resposta.data["visto"])
+        self.assertTrue(
+            self.client.get("/auth/tutorial/").data["visto"]
+        )
+
+    def test_put_sem_campo_marca_como_visto(self):
+        resposta = self.client.put("/auth/tutorial/", {}, format="json")
+        self.assertEqual(resposta.status_code, 200)
+        self.assertTrue(resposta.data["visto"])
+
+    def test_put_desmarca_com_string(self):
+        self.client.put("/auth/tutorial/", {"visto": True}, format="json")
+        resposta = self.client.put("/auth/tutorial/", {"visto": "false"}, format="json")
+        self.assertFalse(resposta.data["visto"])
+        self.assertFalse(
+            self.client.get("/auth/tutorial/").data["visto"]
+        )
+
+    def test_flag_so_afeta_o_usuario_da_sessao(self):
+        self.client.put("/auth/tutorial/", {"visto": True}, format="json")
+        outro = User.objects.create_user(username="outro", password="outra-senha-123")
+        outro_client = APIClient()
+        outro_client.force_login(outro)
+        self.assertFalse(outro_client.get("/auth/tutorial/").data["visto"])
+
+    def test_exige_autenticacao(self):
+        anon = APIClient()
+        self.assertEqual(anon.get("/auth/tutorial/").status_code, 403)
+        self.assertEqual(anon.put("/auth/tutorial/", {}, format="json").status_code, 403)
+

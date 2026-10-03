@@ -1,0 +1,15 @@
+<svg version="1.2" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 393 360" width="393" height="360">
+	<style>
+		tspan { white-space:pre } 
+		.t0 { font-size: 322px;fill: #3b82f6;font-family: "Inter" } 
+		.t1 { font-size: 322px;fill: #f8fafc;font-family: "Inter" } 
+	</style>
+	<text id="S" transform="translate(12,297)">
+		<tspan x="0" y="0" class="t0">S</tspan><tspan  y="0" class="t0">
+</tspan>
+	</text>
+	<text id="P" transform="translate(197,302)">
+		<tspan x="0" y="0" class="t1">P</tspan><tspan  y="0" class="t1">
+</tspan>
+	</text>
+</svg>

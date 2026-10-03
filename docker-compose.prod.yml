@@ -42,7 +42,7 @@ services:
       timeout: 5s
       retries: 3
       start_period: 180s
-    command: sh -c "python manage.py makemigrations && python manage.py migrate --noinput && gunicorn backend.wsgi:application --config backend/gunicorn.conf.py"
+    command: sh -c "python manage.py makemigrations && python manage.py migrate --noinput && gunicorn backend.wsgi:application --config gunicorn.conf.py"
 
   frontend:
     build:

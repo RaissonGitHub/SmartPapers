@@ -107,4 +107,14 @@ export async function salvarPreferencias(preferencias) {
   return data;
 }
 
+export async function obterTutorial() {
+  const { data } = await api.get("/auth/tutorial/");
+  return data;
+}
+
+export async function salvarTutorial(visto) {
+  const { data } = await api.put("/auth/tutorial/", { visto });
+  return data;
+}
+
 export default api;
