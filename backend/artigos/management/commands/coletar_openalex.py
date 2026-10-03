@@ -91,21 +91,25 @@ def extrair_link(primary_location):
 
 
 def salvar_artigo(work):
-    """Salva ou atualiza um artigo e seus autores no banco."""
+    """Salva ou atualiza um artigo e seus autores no banco.
+
+    Retorna (artigo, criado). ``criado`` é False quando o artigo já existia,
+    o que evita contar progresso e refazer embeddings já concluídos.
+    """
     openalex_id = work.get("id", "").replace("https://openalex.org/", "")
     if not openalex_id:
-        return None
+        return None, False
 
     titulo = work.get("title") or ""
     if not titulo:
-        return None
+        return None, False
 
     resumo = reconstruir_resumo(work.get("abstract_inverted_index"))
     ano = work.get("publication_year")
     area = extrair_area(work)
     link = extrair_link(work.get("primary_location"))
 
-    artigo, _ = Artigo.objects.update_or_create(
+    artigo, criado = Artigo.objects.update_or_create(
         openalex_id=openalex_id,
         defaults={
             "titulo": titulo[:500],
@@ -129,7 +133,7 @@ def salvar_artigo(work):
             )
             ArtigoAutor.objects.get_or_create(artigo=artigo, autor=autor)
 
-    return artigo
+    return artigo, criado
 
 
 def gerar_embeddings(modelo, artigos):
@@ -139,7 +143,7 @@ def gerar_embeddings(modelo, artigos):
     textos = [_texto_embedding(a.titulo, a.resumo) for a in artigos]
     vetores = modelo.encode(textos, show_progress_bar=False, batch_size=EMBED_BATCH)
     for artigo, vetor in zip(artigos, vetores):
-        artigo.embedding = vetor.tolist()
+        artigo.embedding = vetor if hasattr(vetor, 'tolist') else list(vetor)
         artigo.save(update_fields=["embedding"])
 
 
@@ -215,9 +219,17 @@ class Command(BaseCommand):
         )
 
         cursor = "*"
-        coletados = 0
+        # --total é o alvo de artigos no BANCO, não de chamadas à API.
+        # Assim o comando é reiniciável: ao repetir, ele retoma de onde parou
+        # em vez de reprocessar do zero os mesmos articles do cursor "*".
+        coletados = Artigo.objects.count()
+        novos_total = 0
         erros = 0
         sem_embedding = []
+
+        self.stdout.write(
+            f"📊 Banco já contém {coletados} artigos | alvo={total_alvo}"
+        )
 
         while coletados < total_alvo:
             por_pagina = min(BATCH_SIZE, total_alvo - coletados)
@@ -243,17 +255,26 @@ class Command(BaseCommand):
 
             # Salvar lote no banco
             lote_artigos = []
+            novos = 0
             for work in works:
-                artigo = salvar_artigo(work)
-                if artigo:
+                resultado = salvar_artigo(work)
+                if resultado is None:
+                    continue
+                artigo, criado = resultado
+                if criado:
+                    novos += 1
+                # Só enfileira o que ainda não tem vetor, evitando refazer
+                # embeddings de artigos já processados em execuções anteriores.
+                if artigo.embedding is None:
                     lote_artigos.append(artigo)
 
-            coletados += len(lote_artigos)
+            coletados += novos
+            novos_total += novos
             sem_embedding.extend(lote_artigos)
 
             self.stdout.write(
-                f"📥 {coletados}/{total_alvo} artigos salvos "
-                f"({len(lote_artigos)} neste lote)"
+                f"📥 {coletados}/{total_alvo} no banco | "
+                f"{novos} novos | {len(lote_artigos)} sem embedding"
             )
 
             # Gerar embeddings em lotes para não acumular na RAM
@@ -277,7 +298,7 @@ class Command(BaseCommand):
         self.stdout.write(
             self.style.SUCCESS(
                 f"\n✅ Coleta concluída! "
-                f"{coletados} artigos coletados | "
+                f"{novos_total} artigos novos nesta execução | "
                 f"{total_banco} total no banco."
             )
         )
