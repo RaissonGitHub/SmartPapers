@@ -256,11 +256,6 @@ docker run --rm -v "C:\Users\lixeiro\Documents\SmartPapers:/app" -w /app node:22
 Typecheck: verificar os comandos em `package.json` e `pyproject.toml` conforme o ambiente.
 
 
-## URLs
-
-- Produção: [https://raiss.top](https://raiss.top)
-- Admin (produção): [https://raiss.top/gestao-admina-smartpapers/](https://raiss.top/gestao-admina-smartpapers/)
-
 ## Licença
 
 [MIT License](LICENSE)
