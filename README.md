@@ -6,7 +6,7 @@ SmartPapers é um assistente para pesquisa acadêmica que combina busca por arti
 
 - **Backend**: Django + Django REST Framework, com PostgreSQL + pgvector para busca semântica.
 - **Frontend**: React 19 + Vite 8 + Tailwind CSS 4.
-- **IA**: Google Gemini (via `google-genai`) para o agente conversacional.
+- **IA**: Google Gemini (via `google-genai`) por padrão, com **Ollama** (`qwen3:8b`) como provedor LLM local alternativo. Suporte a upload de PDF com extração de texto via PyMuPDF.
 - **Coleta de dados**: script para importar artigos do OpenAlex com embeddings vetoriais.
 - **Deploy**: Docker Compose (desenvolvimento e produção), Nginx como proxy reverso, hospedado em [https://raiss.top](https://raiss.top).
 - **Streaming**: respostas do chat em NDJSON (Newline Delimited JSON), exibidas em tempo real.
@@ -15,22 +15,29 @@ SmartPapers é um assistente para pesquisa acadêmica que combina busca por arti
 
 ### Backend
 - Python 3.12
-- Django 5.2.7
-- Django REST Framework 3.16.1
-- PostgreSQL 16 + pgvector 0.8.1
+- Django 6.1.1
+- Django REST Framework 3.18.0
+- PostgreSQL 16 + pgvector (via imagem `pgvector/pgvector:pg16`; pacote `pgvector` 0.5.0)
 - Gunicorn 23.0.0
 - `google-genai` 2.24.0
-- `pgvector-python` 0.4.1
-- NumPy 2.3.3
+- `sentence-transformers` 5.7.0 (embeddings SPECTER2)
+- `scikit-learn` 1.9.0 (reranking/medidas de similaridade)
+- `pymupdf` 1.28.2 (extração de texto de PDF)
+- `ollama` 0.6.2 (provedor LLM local)
+- `redis` 6.2.0 (cache opcional)
+- NumPy 2.5.2
 
 ### Frontend
 - React 19.2.8
 - Vite 8.3.0
 - Tailwind CSS 4.3.3
-- MUI (Material UI)
+- MUI (Material UI) v7 + `@mui/icons-material`
+- `@mui/x-chat` (interface de chat)
+- React Router v7
+- React Dropzone (upload de PDF)
 - React Markdown
-- Axios
-- ESLint + Prettier
+- Axios (REST) + `fetch`/`ReadableStream` (streaming)
+- ESLint
 
 ### Infraestrutura
 - Docker + Docker Compose
@@ -88,6 +95,7 @@ SmartPapers/
 - Docker e Docker Compose
 - PostgreSQL com extensão `pgvector` (via imagem oficial `pgvector/pgvector:pg16`)
 - Chave de API do Google Gemini ([Google AI Studio](https://aistudio.google.com/apikey))
+- (Opcional) [Ollama](https://ollama.com) instalado e rodando no host (porta `11434`) para usar o provedor LLM local
 
 ## Configuração
 
@@ -97,27 +105,36 @@ Crie `backend/.env` (exemplo abaixo). **Nunca commitar segredos**.
 
 ```env
 # Banco de dados
-DATABASE_URL=postgresql://smartpapers:senha@db:5432/smartpapers
 POSTGRES_DB=smartpapers
 POSTGRES_USER=smartpapers
 POSTGRES_PASSWORD=senha
+POSTGRES_HOST=db
+POSTGRES_PORT=5432
 
 # Django
-SECRET_KEY=sua-chave-secreta
-DEBUG=False
-ALLOWED_HOSTS=localhost,127.0.0.1,raiss.top
-CORS_ALLOWED_ORIGINS=https://raiss.top,http://localhost:5173,http://localhost:3000
-CSRF_TRUSTED_ORIGINS=https://raiss.top,http://localhost:5173
+DJANGO_SECRET_KEY=sua-chave-secreta
+DJANGO_DEBUG=False
+DJANGO_ALLOWED_HOSTS=localhost,127.0.0.1
+DJANGO_CORS_ALLOWED_ORIGINS=http://localhost:5173
+DJANGO_CSRF_TRUSTED_ORIGINS=http://localhost:5173
 
 # URL do admin customizada (produção)
 DJANGO_ADMIN_URL=gestao-admina-smartpapers/
 
-# Google Gemini
+# Google Gemini (provedor padrão)
 GEMINI_API_KEY=sua-chave-gemini
-GEMINI_MODEL=gemini-2.5-flash
+GEMINI_MODEL=gemini-3.8-flash
 
 # Coleta (OpenAlex)
 OPENALEX_API_KEY=sua-chave-openalex
+
+# Ollama (provedor local, opcional)
+OLLAMA_ENABLED=1
+OLLAMA_HOST=http://host.docker.internal:11434
+MODELO_OLLAMA=qwen3:8b
+
+# Cache Redis (opcional; sem REDIS_URL usa o cache local do Django)
+# REDIS_URL=redis://localhost:6379/0
 
 ```
 
