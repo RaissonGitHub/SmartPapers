@@ -1,0 +1,75 @@
+"""Fábrica de provedores de LLM.
+
+Ponto único que resolve o provedor pelo nome. Cada provedor vive em um módulo
+próprio e carrega seu SDK"""
+
+import os
+
+from django.conf import settings
+
+from .base import LLMProvider
+from .gemini_provider import GeminiProvider, listar_modelos_gemini
+from .ollama_provider import OllamaProvider
+
+__all__ = [
+    "GeminiProvider",
+    "LLMProvider",
+    "OllamaProvider",
+    "criar_provedor",
+    "listar_modelos_gemini",
+    "ollama_habilitado",
+    "usar_provedor",
+]
+
+
+def ollama_habilitado() -> bool:
+    """Retorna se o serviço Ollama está habilitado (env OLLAMA_ENABLED)."""
+    return bool(getattr(settings, "OLLAMA_ENABLED", True))
+
+
+def criar_provedor(
+    nome: str | None = None,
+    api_key: str | None = None,
+    modelo: str | None = None,
+) -> LLMProvider:
+    """Cria o provedor pelo nome ('ollama' | 'gemini').
+
+    Se `nome` for ausente, usa a variável de ambiente LLM_PROVIDER (padrão
+    'ollama'). Se o Ollama estiver desativado (OLLAMA_ENABLED=0), pedidos por 'ollama'
+    levantam erro orientando o uso do Gemini.
+    """
+    provider = (nome or os.getenv("LLM_PROVIDER", "ollama")).strip().lower()
+
+    if provider == "ollama" and not ollama_habilitado():
+        if nome is None:
+            provider = "gemini"
+        else:
+            raise ValueError(
+                "O serviço Ollama está desativado neste servidor "
+                "(OLLAMA_ENABLED=0). Use o provedor 'gemini'."
+            )
+
+    if provider == "gemini":
+        return GeminiProvider(
+            modelo=modelo or os.getenv("GEMINI_MODEL", "gemini-3.8-flash"),
+            api_key=api_key,
+        )
+
+    if provider == "ollama":
+        return OllamaProvider(modelo=modelo or os.getenv("MODELO_OLLAMA", "qwen3:8b"))
+
+    raise ValueError(f"Provedor desconhecido: {provider!r}. Use 'gemini' ou 'ollama'.")
+
+
+_padrao: LLMProvider | None = None
+
+
+def usar_provedor(provider: LLMProvider | None = None) -> LLMProvider:
+    """Retorna o provedor informado ou o padrão configurado.
+    """
+    global _padrao
+    if provider is not None:
+        return provider
+    if _padrao is None:
+        _padrao = criar_provedor()
+    return _padrao

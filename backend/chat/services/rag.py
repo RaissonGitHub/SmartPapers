@@ -1,0 +1,602 @@
+import json
+import os
+import re
+from concurrent.futures import ThreadPoolExecutor
+
+from artigos.services.buscar_artigos_service import (
+    buscar_artigos,
+    intervalo_anos_artigos,
+)
+from artigos.services.gerar_embedding_service import gerar_embedding_lote
+
+from .cancelamento import RequisicaoCancelada, checar_cancelamento
+from .orcamento import checar_orcamento
+from .progresso import avancar
+from .providers import LLMProvider, usar_provedor
+from .refinamento import rerank_por_aderencia
+
+PDF_SECOES_BUSCA_MAX = int(os.getenv("PDF_SECOES_BUSCA_MAX", "4"))
+
+
+def _range_anos() -> tuple[int, int]:
+    """Janela de anos disponível na base (fallback 2020-2026 se vazia)."""
+    minimo, maximo = intervalo_anos_artigos()
+    if minimo and maximo:
+        return minimo, maximo
+    return 2020, 2026
+
+
+def _system_prompt() -> str:
+    """Prompt do sistema com a janela real de anos da base."""
+    minimo, maximo = _range_anos()
+    return (
+        "Você é um assistente acadêmico e científico.\n"
+        "Regras:\n"
+        "1. Perguntas conceituais ou de conhecimento geral — como 'por que o céu é "
+        "azul?', 'o que é machine learning?', 'como funciona a fotossíntese?' — devem "
+        "ser respondidas DIRETAMENTE, SEM chamar a ferramenta de busca.\n"
+        "2. Chame SEMPRE a ferramenta 'pesquisar_base_artigos' quando o usuário pedir "
+        "explicitamente para buscar, encontrar, listar, recomendar ou procurar "
+        "artigos, papers ou referências científicas — inclusive frases como 'procure "
+        "sobre o mesmo tema', 'busque artigos relacionados' ou 'sobre o que o PDF "
+        "aborda', mesmo que a pergunta também tenha natureza conceitual ou se baseie "
+        "em um documento anexado.\n"
+        "3. Ao chamar a ferramenta, crie o parâmetro 'search_title_en' obrigatoriamente "
+        "em INGLÊS com o título acadêmico equivalente à dúvida do usuário.\n"
+        f"4. A base contém artigos somente entre {minimo} e {maximo}. Não invente "
+        "outros anos; quando não houver período pedido pelo usuário, não envie "
+        "filtros de ano.\n"
+        "5. Responda usando apenas os artigos retornados pela ferramenta. Se nenhum "
+        "artigo for diretamente relacionado à pergunta, diga isso honestamente em vez "
+        "de citar artigos irrelevantes, e responda a pergunta com o seu conhecimento."
+    )
+
+
+def _extrair_json_resposta(resposta: str) -> dict | None:
+    """Extrai o primeiro objeto JSON válido, ignorando fences/bloco de texto."""
+    texto = (resposta or "").replace("```json", "").replace("```", "")
+    for trecho in re.findall(r"\{.*?\}", texto, re.DOTALL):
+        try:
+            return json.loads(trecho)
+        except (json.JSONDecodeError, ValueError):
+            continue
+    return None
+
+
+def selecionar_pdf(
+    pdfs: list[dict], mensagem: str, provedor: LLMProvider | None = None
+) -> tuple[int | None, list[dict]]:
+    """Pede ao LLM para escolher um PDF e devolve apenas suas seções."""
+    if not pdfs:
+        return None, []
+    if len(pdfs) == 1:
+        pdf = pdfs[0]
+        return pdf.get("id"), pdf.get("secoes") or []
+
+    indice = "\n".join(
+        f"id={pdf.get('id')} | nome={pdf.get('nome', '')} | "
+        f"descricao={pdf.get('descricao', '')}"
+        for pdf in pdfs
+    )
+    prompt = (
+        "Escolha qual documento PDF, se houver, deve responder à pergunta. "
+        'Responda somente JSON válido no formato {"pdf_id": número ou null}.\n\n'
+        f"Documentos disponíveis:\n{indice}\n\nPergunta: {mensagem}"
+    )
+    resposta = (usar_provedor(provedor)).chat_simple(
+        messages=[
+            {
+                "role": "system",
+                "content": "Você seleciona documentos por relevância sem inventar informações.",
+            },
+            {"role": "user", "content": prompt},
+        ],
+        temperature=0,
+    )
+    escolha = _extrair_json_resposta(resposta)
+    pdf_id = escolha.get("pdf_id") if isinstance(escolha, dict) else None
+
+    if isinstance(pdf_id, int) and pdf_id not in [item.get("id") for item in pdfs]:
+        pdf = None
+    else:
+        pdf = next((item for item in pdfs if item.get("id") == pdf_id), None)
+
+    if pdf is None and not isinstance(escolha, dict):
+        pdf = pdfs[0]
+        pdf_id = pdf.get("id")
+    return (pdf_id, pdf.get("secoes") or []) if pdf else (None, [])
+
+
+def _contexto_artigos_prompt(artigos) -> str:
+    """Numera os artigos salvos na sessão para referência direta pelo modelo."""
+    if not artigos:
+        return ""
+    blocos = []
+    for indice, artigo in enumerate(artigos, start=1):
+        autores = ", ".join(artigo.get("autores") or []) or "Não informados"
+        ano = artigo.get("ano_publicacao") or "S/D"
+        resumo = (artigo.get("resumo") or "").strip()[:400]
+        titulo = artigo.get("titulo") or "Sem título"
+        blocos.append(f"[{indice}] {titulo} ({ano}) - {autores}\nResumo: {resumo}")
+    return "\n\n".join(blocos)
+
+
+def _mensagens_artigos_contexto(artigos_contexto) -> list[dict]:
+    """Constrói mensagem de sistema com os artigos salvos na sessão."""
+    if not artigos_contexto:
+        return []
+    return [
+        {
+            "role": "system",
+            "content": (
+                "Estes são os artigos já encontrados nesta conversa, do mais antigo "
+                "ao mais recente. Quando o usuário se referir a 'os artigos', "
+                "'os últimos artigos', 'o artigo N' ou pedir detalhes sobre eles, "
+                "responda USANDO APENAS as informações desta lista, sem inventar "
+                "conteúdo inexistente:\n\n"
+                f"{_contexto_artigos_prompt(artigos_contexto)}"
+            ),
+        }
+    ]
+
+
+def _secoes_pdf_prompt(pdf_secoes) -> str:
+    """Formata as seções de conteúdo do PDF para o contexto do modelo.
+
+    Referências bibliográficas participam apenas da recuperação, não da geração,
+    para evitar que o modelo trate artigos citados no PDF como recomendados.
+    """
+    if not pdf_secoes:
+        return ""
+    blocos = []
+    for indice, secao in enumerate(pdf_secoes, start=1):
+        if secao.get("tipo", "conteudo") != "conteudo":
+            continue
+        resumo = (secao.get("resumo") or "").strip()
+        texto = (secao.get("texto") or "").strip()
+        blocos.append(f"[Seção {indice}] {resumo}\n{texto}")
+    return "\n\n".join(blocos)
+
+
+def _mensagens_pdf_contexto(pdf_secoes) -> list[dict]:
+    """Constrói mensagem de sistema com o conteúdo relevante do PDF anexado."""
+    prompt = _secoes_pdf_prompt(pdf_secoes)
+    if not prompt:
+        return []
+    return [
+        {
+            "role": "system",
+            "content": (
+                "O usuário anexou um documento PDF a esta conversa. Estas são as "
+                f"seções relevantes extraídas desse documento:\n\n{prompt}"
+            ),
+        }
+    ]
+
+
+def _mensagem_pdf_catalogo(pdf_catalogo) -> list[dict]:
+    if not pdf_catalogo:
+        return []
+    indice = "\n".join(
+        f"[{pdf.get('id')}] {pdf.get('nome', '')}: {pdf.get('descricao', '')}"
+        for pdf in pdf_catalogo
+    )
+    return [
+        {
+            "role": "system",
+            "content": (
+                "Documentos PDF disponíveis nesta sessão. Use este índice para "
+                "entender referências a documentos anteriores; o conteúdo detalhado "
+                "do documento relevante será fornecido separadamente:\n\n" + indice
+            ),
+        }
+    ]
+
+
+def _mesclar_artigos_por_id(*listas: list[dict]) -> list[dict]:
+    """Mantém um único artigo por id, preservando a primeira ocorrência."""
+    unicos = {}
+    for lista in listas:
+        for artigo in lista:
+            art_id = artigo.get("id")
+            if art_id and art_id not in unicos:
+                unicos[art_id] = artigo
+    return list(unicos.values())
+
+
+def _buscar_dupla_artigos(
+    search_title_en: str,
+    texto_original_usuario: str,
+    top_n: int = 5,
+    ano_inicio: int = 0,
+    ano_fim: int = 0,
+    area: str = "",
+    provedor: LLMProvider | None = None,
+    consultas_pdf: list[str] | None = None,
+    retornar_medicao: bool = False,
+) -> list[dict] | tuple[list[dict], dict]:
+    """Busca nas consultas geradas + seções do PDF e reranke os resultados.
+
+    Com `retornar_medicao=True`, devolve `(artigos_final, medicao)` onde
+    `medicao` guarda consultas usadas, candidate set (ids + similaridade
+    antes do rerank) e o Top-K final (id + similaridade vetorial original).
+    """
+    pool_rerank = max(top_n + 5, 15)
+    candidatos_por_lote = pool_rerank
+    p = usar_provedor(provedor)
+    checar_orcamento("busca")
+    checar_cancelamento()
+    print(f"[RAG] Busca inicial: {search_title_en}")
+
+    consultas_pdf = [c for c in (consultas_pdf or []) if c and c.strip()][
+        :PDF_SECOES_BUSCA_MAX
+    ]
+    if consultas_pdf:
+        print(f"[RAG] Usando {len(consultas_pdf)} seções do PDF como consultas.")
+
+    consultas = [
+        c for c in (search_title_en, texto_original_usuario) if c and c.strip()
+    ]
+    consultas += consultas_pdf
+
+    try:
+        avancar("embedding", "Gerando o embedding da consulta…")
+        embeddings = gerar_embedding_lote(consultas)
+        itens = list(zip(consultas, embeddings))
+    except RequisicaoCancelada:
+        raise
+    except Exception as exc:
+        print(f"[RAG] Falha no embedding em lote ({exc}); tentando individualmente.")
+        itens = []
+        for texto in consultas:
+            try:
+                itens.append((texto, gerar_embedding_lote([texto])[0]))
+            except RequisicaoCancelada:
+                raise
+            except Exception as exc2:
+                print(f"[RAG] Falha no embedding de '{texto[:80]}': {exc2}")
+
+    def executar_busca(item):
+        texto, embedding = item
+        try:
+            print(f"[RAG] Executando busca vetorial para: {texto[:80]}...")
+            return buscar_artigos(
+                embedding=embedding,
+                top_n=candidatos_por_lote,
+                ano_inicio=ano_inicio,
+                ano_fim=ano_fim,
+                area=area,
+            )
+        except Exception as exc:
+            print(f"[RAG] Falha na busca para '{texto[:80]}': {exc}")
+            return []
+
+    if itens:
+        avancar("vetorial", "Consultando a base vetorial de artigos…")
+        with ThreadPoolExecutor(max_workers=min(4, len(itens))) as executor:
+            resultados = list(executor.map(executar_busca, itens))
+    else:
+        resultados = []
+
+    print(f"[RAG] Resultados brutos: {len(resultados)} execuções de busca")
+    pool = _mesclar_artigos_por_id(*resultados)[:pool_rerank]
+    print(
+        "[RAG] Medição Candidate Set:",
+        ",".join(f"{a.get('id')}({a.get('similaridade')})" for a in pool),
+    )
+    print(f"[RAG] Pool para rerank: {len(pool)} artigos")
+    checar_orcamento("rerank")
+    checar_cancelamento()
+    avancar("rerank", "Reordenando os artigos por aderência…")
+    pergunta_rerank = (
+        f"{search_title_en}; {texto_original_usuario}"
+        if search_title_en
+        else texto_original_usuario
+    )
+    artigos_final = rerank_por_aderencia(
+        pergunta_rerank, pool, top_n, provedor=p
+    )
+    print(
+        "[RAG] Medição Top-K Final:",
+        ",".join(f"{a.get('id')}({a.get('similaridade')})" for a in artigos_final),
+    )
+    print(f"[RAG] Artigos finais retornados: {len(artigos_final)}")
+
+    if retornar_medicao:
+
+        def resumo_artigo(a):
+            return {
+                "id": a.get("id"),
+                "titulo": (a.get("titulo") or "")[:120],
+                "similaridade": a.get("similaridade"),
+            }
+
+        medicao = {
+            "consultas": consultas,
+            "candidate_set": [resumo_artigo(a) for a in pool],
+            "top_k_final": [resumo_artigo(a) for a in artigos_final],
+        }
+        return artigos_final, medicao
+
+    return artigos_final
+
+
+def _extrair_tool_call_manual(conteudo_texto: str) -> dict | None:
+    """Extrai argumentos de um tool_call em texto puro."""
+    padrao = r"<tool_call>\s*({.*?})\s*</tool_call>"
+    match = re.search(padrao, conteudo_texto, re.DOTALL)
+    if not match:
+        return None
+
+    try:
+        dados = json.loads(match.group(1))
+        return dados.get("arguments", {})
+    except json.JSONDecodeError:
+        return None
+
+
+def _extrair_chamada_ferramenta(resposta) -> tuple[str | None, dict | None]:
+    """Lê a ferramenta solicitada pelo modelo, seja da SDK ou no fallback manual."""
+    mensagem = getattr(resposta, "message", None)
+    tool_calls = getattr(mensagem, "tool_calls", None) or []
+    if tool_calls:
+        call = tool_calls[0]
+        return call.function.name, call.function.arguments
+
+    conteudo = getattr(mensagem, "content", "") or ""
+    if "<tool_call>" in conteudo:
+        args = _extrair_tool_call_manual(conteudo)
+        if args:
+            return "pesquisar_base_artigos", args
+
+    return None, None
+
+
+def _normalizar_anos_tool_call(args: dict) -> None:
+    """Mantém anos sugeridos pelo modelo dentro da janela disponível na base."""
+    minimo, maximo = _range_anos()
+    inicio = args.get("ano_inicio") or 0
+    fim = args.get("ano_fim") or 0
+    inicio_invalido = inicio and not minimo <= inicio <= maximo
+    fim_invalido = fim and not minimo <= fim <= maximo
+
+    if inicio_invalido:
+        args["ano_inicio"] = minimo
+    if fim_invalido:
+        args["ano_fim"] = maximo
+    if inicio_invalido and fim_invalido:
+        print(
+            f"[RAG] Intervalo de anos do modelo fora da base; usando {minimo}-{maximo}."
+        )
+
+
+def _substituir_ancoras_por_titulo(resposta: str, artigos: list[dict]) -> str:
+    """Troca o texto visível de links cujo destino é um artigo pelo seu título."""
+    por_url = {
+        artigo.get("link_original"): artigo.get("titulo", "artigo")
+        for artigo in artigos
+        if artigo.get("link_original")
+    }
+    if not por_url or not resposta:
+        return resposta
+
+    padrao = re.compile(r"\[([^\]]*)\]\(([^)\s]+)\)")
+
+    def substituto(match: re.Match[str]) -> str:
+        url = match.group(2).strip()
+        titulo = por_url.get(url)
+        if not titulo:
+            return match.group(0)
+        anchor = re.sub(r"[\[\]]", "", titulo).strip() or "artigo"
+        return f"[{anchor}]({url})"
+
+    return padrao.sub(substituto, resposta)
+
+
+def _intencao_busca(mensagem: str) -> bool:
+    """Detecta pedido explícito de busca de artigos no texto do usuário."""
+    alvos = (
+        "busque",
+        "busca",
+        "procure",
+        "procurar",
+        "pesquise",
+        "pesquisar",
+        "encontre",
+        "encontrar",
+        "recomende",
+        "recomendar",
+        "traga",
+        "trazer",
+        "mesmo tema",
+        "mesma area",
+        "relacionad",
+        "semelhante",
+    )
+    texto = (mensagem or "").lower()
+    return any(alvo in texto for alvo in alvos)
+
+
+def _gerar_search_title_en(
+    mensagem: str, provedor: LLMProvider | None = None
+) -> str:
+    """Gera o título acadêmico em inglês equivalente ao pedido do usuário."""
+    p = usar_provedor(provedor)
+    checar_orcamento("analise")
+    resposta = p.chat_simple(
+        messages=[
+            {
+                "role": "system",
+                "content": (
+                    "Escreva apenas o título acadêmico em inglês equivalente ao "
+                    "pedido do usuário, sem aspas nem pontuação final."
+                ),
+            },
+            {"role": "user", "content": mensagem},
+        ],
+        temperature=0,
+    )
+    return (resposta or "").strip()
+
+
+def _resposta_direta(
+    mensagem: str,
+    provedor: LLMProvider | None = None,
+    historico: list[dict] | None = None,
+    artigos_contexto: list[dict] | None = None,
+    pdf_catalogo: list[dict] | None = None,
+    pdf_secoes: list[dict] | None = None,
+) -> dict:
+    """Resposta conceitual geral: sem busca no banco."""
+    p = usar_provedor(provedor)
+    checar_orcamento("resposta")
+    checar_cancelamento()
+    avancar("resposta", "Escrevendo a resposta…")
+    messages = [{"role": "system", "content": _system_prompt()}]
+    messages.extend(_mensagem_pdf_catalogo(pdf_catalogo))
+    messages.extend(_mensagens_pdf_contexto(pdf_secoes))
+    messages.extend(_mensagens_artigos_contexto(artigos_contexto))
+    if historico:
+        messages.extend(historico)
+    messages.append({"role": "user", "content": mensagem})
+    resposta = p.chat_simple(messages=messages)
+    return {"resposta": resposta, "ferramenta_utilizada": False, "artigos": []}
+
+
+def processar_mensagem_usuario(
+    mensagem: str,
+    requisicao: str | None = None,
+    provedor: LLMProvider | None = None,
+    historico: list[dict] | None = None,
+    artigos_contexto: list[dict] | None = None,
+    pdf_catalogo: list[dict] | None = None,
+    pdf_secoes: list[dict] | None = None,
+    ano_inicio: int = 0,
+    ano_fim: int = 0,
+    area: str = "",
+) -> dict:
+    p = usar_provedor(provedor)
+    pdf_secoes = pdf_secoes or []
+    checar_orcamento("analise")
+    checar_cancelamento()
+    avancar("analise", "Analisando sua pergunta…")
+    print(f"[RAG] Iniciando processamento da mensagem: {mensagem[:120]}...")
+
+    def pesquisar_base_artigos(
+        search_title_en: str,
+        top_n: int = 5,
+        ano_inicio: int = 0,
+        ano_fim: int = 0,
+        area: str = "",
+    ) -> list[dict]:
+        """Busca artigos da base disponível na janela de anos existente."""
+        print(f"[RAG] Função ferramenta chamada com: {search_title_en} | top_n={top_n}")
+        return _buscar_dupla_artigos(
+            search_title_en=search_title_en,
+            texto_original_usuario=mensagem,
+            top_n=top_n,
+            ano_inicio=ano_inicio,
+            ano_fim=ano_fim,
+            area=area,
+            provedor=p,
+            consultas_pdf=[s.get("texto") or s.get("resumo") or "" for s in pdf_secoes],
+        )
+
+    # Override explícito da intenção: sem o campo, o modelo decide no tool-call.
+    if requisicao == "busca":
+        print("[RAG] Requisição explícita de busca.")
+    elif requisicao == "resposta":
+        print("[RAG] Requisição explícita de resposta direta.")
+        return _resposta_direta(
+            mensagem,
+            provedor=p,
+            historico=historico,
+            artigos_contexto=artigos_contexto,
+            pdf_catalogo=pdf_catalogo,
+            pdf_secoes=pdf_secoes,
+        )
+
+    messages = [{"role": "system", "content": _system_prompt()}]
+    messages.extend(_mensagem_pdf_catalogo(pdf_catalogo))
+    messages.extend(_mensagens_pdf_contexto(pdf_secoes))
+    messages.extend(_mensagens_artigos_contexto(artigos_contexto))
+    if historico:
+        messages.extend(historico)
+    messages.append({"role": "user", "content": mensagem})
+
+    def executar_busca_e_responder(tool_args: dict) -> dict:
+        tool_args["ano_inicio"] = (
+            ano_inicio if ano_inicio else tool_args.get("ano_inicio") or 0
+        )
+        tool_args["ano_fim"] = ano_fim if ano_fim else tool_args.get("ano_fim") or 0
+        tool_args["area"] = area.strip() if area.strip() else tool_args.get("area") or ""
+        _normalizar_anos_tool_call(tool_args)
+
+        query_ingles_gerada = tool_args.get("search_title_en", "")
+        print(f"[RAG] Query em inglês: {query_ingles_gerada}")
+        avancar("busca", "Montando a consulta e buscando artigos na base…")
+        artigos_encontrados = pesquisar_base_artigos(**tool_args)
+
+        messages.extend(
+            [
+                {
+                    "role": "assistant",
+                    "content": (
+                        "Chamei a ferramenta pesquisar_base_artigos com: "
+                        + json.dumps(tool_args)
+                    ),
+                },
+                {
+                    "role": "tool",
+                    "tool_name": "pesquisar_base_artigos",
+                    "content": json.dumps(artigos_encontrados, ensure_ascii=False),
+                },
+            ]
+        )
+
+        print("[RAG] Gerando resposta final com os artigos retornados...")
+        avancar(
+            "resposta",
+            f"Redigindo a resposta com base em {len(artigos_encontrados)} artigos…",
+        )
+        checar_orcamento("resposta")
+        resposta_final = p.chat_simple(messages=messages)
+        resposta_final = _substituir_ancoras_por_titulo(
+            resposta_final, artigos_encontrados
+        )
+        print("[RAG] Resposta final concluída.")
+        return {
+            "resposta": resposta_final,
+            "ferramenta_utilizada": True,
+            "titulo_ingles_gerado": query_ingles_gerada,
+            "texto_cru_utilizado": mensagem,
+            "total_artigos_mesclados": len(artigos_encontrados),
+            "artigos": artigos_encontrados,
+        }
+
+    print("[RAG] Enviando mensagem ao modelo para decidir tool-call...")
+    checar_orcamento("analise")
+    resposta = p.chat(messages=messages, tools=[pesquisar_base_artigos])
+    func_name, args = _extrair_chamada_ferramenta(resposta)
+    print(f"[RAG] Tool call detectada: func_name={func_name}, args={args}")
+
+    if func_name == "pesquisar_base_artigos" and args:
+        return executar_busca_e_responder(args)
+
+    forcar_busca = requisicao == "busca" or (
+        bool(pdf_secoes) and _intencao_busca(mensagem)
+    )
+    if forcar_busca:
+        print("[RAG] Intenção de busca; forçando a pesquisa na base.")
+        args = {
+            "search_title_en": _gerar_search_title_en(mensagem, provedor=p),
+            "top_n": 5,
+        }
+        return executar_busca_e_responder(args)
+
+    print("[RAG] Nenhuma ferramenta foi chamada; devolvendo resposta direta do modelo.")
+    return {
+        "resposta": getattr(getattr(resposta, "message", None), "content", ""),
+        "ferramenta_utilizada": False,
+        "artigos": [],
+    }

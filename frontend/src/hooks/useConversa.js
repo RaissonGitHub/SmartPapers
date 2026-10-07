@@ -1,0 +1,387 @@
+import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  cancelarRequisicao,
+  enviarMensagem,
+  excluirSessao as excluirSessaoApi,
+  listarAreas,
+  listarSessoes,
+  obterSessao,
+} from "../services/chatService";
+
+const ordenarArtigos = (lista) => {
+  const unicos = new Map();
+  for (const artigo of lista) {
+    if (artigo.id != null && !unicos.has(artigo.id)) {
+      unicos.set(artigo.id, artigo);
+    }
+  }
+  return [...unicos.values()];
+};
+
+const compararMensagens = (a, b) => {
+  const instanteA = Date.parse(a.criada_em);
+  const instanteB = Date.parse(b.criada_em);
+  if (!Number.isNaN(instanteA) && !Number.isNaN(instanteB)) {
+    if (instanteA !== instanteB) return instanteA - instanteB;
+  } else if (a.criada_em !== b.criada_em) {
+    if (!a.criada_em) return 1;
+    if (!b.criada_em) return -1;
+    return a.criada_em < b.criada_em ? -1 : 1;
+  }
+  return (a.id ?? 0) - (b.id ?? 0);
+};
+
+const papelDaMensagem = (papel) => {
+  const papelNormalizado = String(papel ?? "").toLowerCase();
+  return papelNormalizado === "modelo" ||
+    papelNormalizado === "model" ||
+    papelNormalizado === "assistant"
+    ? "model"
+    : "user";
+};
+
+const mapearMensagens = (mensagens) =>
+  mensagens
+    .map((m, i) => ({
+      id: m.id ?? i,
+      papel: papelDaMensagem(m.papel),
+      conteudo: m.conteudo,
+      artigos: m.artigos ?? [],
+      pdf_nome: m.pdf_nome ?? "",
+      criada_em: m.criada_em ?? "",
+    }))
+    .sort(compararMensagens);
+
+export default function useConversa() {
+  const [mensagens, setMensagens] = useState([]);
+  const [carregamento, setCarregamento] = useState(null);
+  const [progresso, setProgresso] = useState("");
+  const [erro, setErro] = useState("");
+  const [sessaoId, setSessaoId] = useState(null);
+  const [sessaoAtiva, setSessaoAtiva] = useState(null);
+  const [sessoes, setSessoes] = useState([]);
+  const [artigosSessao, setArtigosSessao] = useState([]);
+  const [carregandoSessoes, setCarregandoSessoes] = useState(true);
+  const [carregandoSessao, setCarregandoSessao] = useState(false);
+  const [areas, setAreas] = useState([]);
+  const [carregandoAreas, setCarregandoAreas] = useState(true);
+  const [limitesAnos, setLimitesAnos] = useState({
+    anoMinimo: 0,
+    anoMaximo: 0,
+  });
+  const [filtros, setFiltros] = useState({
+    anoInicio: null,
+    anoFim: null,
+    area: "",
+  });
+  const [chaveSessaoVisualizada, setChaveSessaoVisualizada] =
+    useState("nova-inicial");
+  const chaveSessaoVisualizadaRef = useRef("nova-inicial");
+  const abortControllerRef = useRef(null);
+  const requisicaoIdRef = useRef(null);
+  const editandoRef = useRef(false);
+  const arquivosPorConteudoRef = useRef(new Map());
+  const [pedidoEdicao, setPedidoEdicao] = useState({ texto: "", seq: 0 });
+  const [pedidoCancelamento, setPedidoCancelamento] = useState(0);
+  const [idEmEdicao, setIdEmEdicao] = useState(null);
+
+  const definirSessaoVisualizada = useCallback((chave) => {
+    chaveSessaoVisualizadaRef.current = chave;
+    setChaveSessaoVisualizada(chave);
+  }, []);
+
+  const carregando = carregamento?.chave === chaveSessaoVisualizada;
+
+  useEffect(() => {
+    let cancelado = false;
+    (async () => {
+      try {
+        const resultado = await listarAreas();
+        if (!cancelado) {
+          setAreas(resultado.areas);
+          setLimitesAnos({
+            anoMinimo: resultado.anoMinimo,
+            anoMaximo: resultado.anoMaximo,
+          });
+        }
+      } catch {
+        return;
+      } finally {
+        if (!cancelado) setCarregandoAreas(false);
+      }
+    })();
+    return () => {
+      cancelado = true;
+    };
+  }, []);
+
+  const definirFiltro = useCallback((chave, valor) => {
+    setFiltros((prev) => ({ ...prev, [chave]: valor }));
+  }, []);
+
+  useEffect(() => {
+    let cancelado = false;
+    (async () => {
+      try {
+        const lista = await listarSessoes();
+        if (!cancelado) setSessoes(lista);
+      } catch (e) {
+        if (!cancelado) setErro(e?.message ?? "Erro ao carregar sessões.");
+      } finally {
+        if (!cancelado) setCarregandoSessoes(false);
+      }
+    })();
+    return () => {
+      cancelado = true;
+    };
+  }, []);
+
+  const atualizarSessoes = useCallback(async () => {
+    try {
+      const lista = await listarSessoes();
+      setSessoes(lista);
+    } catch {
+      return;
+    }
+  }, []);
+
+  const selecionarSessao = useCallback(
+    async (pk) => {
+      editandoRef.current = false;
+      setIdEmEdicao(null);
+      arquivosPorConteudoRef.current.clear();
+      definirSessaoVisualizada(`sessao-${pk}`);
+      setCarregandoSessao(true);
+      setErro("");
+      try {
+        const detalhe = await obterSessao(pk);
+        setSessaoAtiva(detalhe.id);
+        setSessaoId(detalhe.sessao_id);
+        setMensagens(mapearMensagens(detalhe.mensagens ?? []));
+        setArtigosSessao(ordenarArtigos(detalhe.artigos_contexto ?? []));
+      } catch (e) {
+        setErro(e?.message ?? "Erro ao carregar a sessão.");
+      } finally {
+        setCarregandoSessao(false);
+      }
+    },
+    [definirSessaoVisualizada],
+  );
+
+  const novaSessao = useCallback(() => {
+    editandoRef.current = false;
+    setIdEmEdicao(null);
+    arquivosPorConteudoRef.current.clear();
+    definirSessaoVisualizada(`nova-${Date.now()}`);
+    setMensagens([]);
+    setArtigosSessao([]);
+    setErro("");
+    setSessaoId(null);
+    setSessaoAtiva(null);
+  }, [definirSessaoVisualizada]);
+
+  const excluirSessao = useCallback(
+    async (pk) => {
+      try {
+        await excluirSessaoApi(pk);
+        setSessoes((prev) => prev.filter((s) => s.id !== pk));
+        if (sessaoAtiva !== pk) return;
+        setMensagens([]);
+        setArtigosSessao([]);
+        setSessaoId(null);
+        setSessaoAtiva(null);
+      } catch (e) {
+        setErro(e?.message ?? "Erro ao excluir a sessão.");
+      }
+    },
+    [sessaoAtiva],
+  );
+
+  const enviar = useCallback(
+    async (texto, arquivo = null, requisicao = undefined, opcoes = {}) => {
+      const conteudo = texto.trim();
+      if (!conteudo || carregando) return;
+      if (arquivo) arquivosPorConteudoRef.current.set(conteudo, arquivo);
+      const ehEdicao = editandoRef.current;
+      editandoRef.current = false;
+      if (ehEdicao) setIdEmEdicao(null);
+      const chaveDaSessao = chaveSessaoVisualizadaRef.current;
+      abortControllerRef.current?.abort();
+      const controller = new AbortController();
+      abortControllerRef.current = controller;
+      const requisicaoId =
+        typeof crypto?.randomUUID === "function"
+          ? crypto.randomUUID()
+          : `req-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      requisicaoIdRef.current = requisicaoId;
+      setErro("");
+      setProgresso("");
+      setCarregamento({ chave: chaveDaSessao });
+      const emitidaAgora = new Date().toISOString();
+      const idOtimista = `temporaria-${emitidaAgora}`;
+      setMensagens((prev) => {
+        let base = prev;
+        if (ehEdicao) {
+          const ultimaUsuario = [...prev]
+            .reverse()
+            .find((m) => m.papel === "user");
+          const ultimaModelo = [...prev]
+            .reverse()
+            .find((m) => m.papel === "model");
+          const idsRemovidos = new Set(
+            [ultimaUsuario, ultimaModelo]
+              .map((m) => m?.id)
+              .filter((id) => id != null),
+          );
+          base = base.filter((m) => !idsRemovidos.has(m.id));
+        }
+        return [
+          ...base,
+          {
+            id: idOtimista,
+            papel: "user",
+            conteudo,
+            pdf_nome: arquivo?.name || "",
+            criada_em: emitidaAgora,
+          },
+        ];
+      });
+      let idDaSessao = sessaoId;
+      try {
+        const resultado = await enviarMensagem({
+          mensagem: conteudo,
+          sessao_id: idDaSessao,
+          ano_inicio: filtros.anoInicio || 0,
+          ano_fim: filtros.anoFim || 0,
+          area: filtros.area || "",
+          pdf: arquivo || null,
+          requisicao,
+          requisicao_id: requisicaoId,
+          editar: ehEdicao,
+          signal: controller.signal,
+          aoProgresso: (texto) => {
+            if (chaveSessaoVisualizadaRef.current === chaveDaSessao) {
+              setProgresso(texto);
+            }
+          },
+          ...opcoes,
+        });
+        if (chaveSessaoVisualizadaRef.current === chaveDaSessao) {
+          if (resultado.sessao != null) {
+            setSessoes((prev) => {
+              if (prev.some((s) => s.id === resultado.sessao)) return prev;
+              return [
+                {
+                  id: resultado.sessao,
+                  sessao_id: resultado.sessao_id,
+                  titulo:
+                    conteudo.length > 500 ? conteudo.slice(0, 500) : conteudo,
+                  criada_em: emitidaAgora,
+                },
+                ...prev,
+              ];
+            });
+          }
+          setSessaoAtiva((prev) => resultado.sessao ?? prev);
+          setSessaoId((prev) => resultado.sessao_id ?? prev);
+          setMensagens((prev) => {
+            const persistidas = resultado.mensagens;
+            if (Array.isArray(persistidas) && persistidas.length > 0) {
+              const semOtimista = prev.filter((m) => m.id !== idOtimista);
+              return mapearMensagens([...semOtimista, ...persistidas]);
+            }
+            return [
+              ...prev.filter((m) => m.id !== idOtimista),
+              {
+                papel: "user",
+                conteudo,
+                pdf_nome: arquivo?.name || "",
+                criada_em: emitidaAgora,
+              },
+              {
+                papel: "model",
+                conteudo: resultado.resposta ?? "",
+                artigos: resultado.artigos ?? [],
+                criada_em: new Date().toISOString(),
+              },
+            ];
+          });
+          if ((resultado.artigos ?? []).length > 0) {
+            setArtigosSessao((prev) =>
+              ordenarArtigos([...prev, ...(resultado.artigos ?? [])]),
+            );
+          }
+          await atualizarSessoes();
+        }
+      } catch (e) {
+        if (controller.signal.aborted) return;
+        if (chaveSessaoVisualizadaRef.current === chaveDaSessao) {
+          setErro(e?.message ?? "Erro ao processar sua mensagem.");
+        }
+      } finally {
+        if (abortControllerRef.current === controller) {
+          abortControllerRef.current = null;
+        }
+        if (requisicaoIdRef.current === requisicaoId) {
+          requisicaoIdRef.current = null;
+        }
+        setProgresso("");
+        setCarregamento((atual) =>
+          atual?.chave === chaveDaSessao ? null : atual,
+        );
+      }
+    },
+    [carregando, sessaoId, filtros, atualizarSessoes],
+  );
+
+  const cancelar = useCallback(() => {
+    const id = requisicaoIdRef.current;
+    if (id) {
+      cancelarRequisicao(id).catch(() => {});
+    }
+    abortControllerRef.current?.abort();
+  }, []);
+
+  const editarMensagem = useCallback((texto, id = null) => {
+    const conteudo = (texto ?? "").trim();
+    const arquivo = arquivosPorConteudoRef.current.get(conteudo) ?? null;
+    setPedidoEdicao((prev) => ({ texto, seq: prev.seq + 1 }));
+    setIdEmEdicao(id ?? null);
+    editandoRef.current = true;
+    return arquivo;
+  }, []);
+
+  const cancelarEdicao = useCallback(() => {
+    if (!editandoRef.current) return;
+    editandoRef.current = false;
+    setIdEmEdicao(null);
+    setPedidoCancelamento((prev) => prev + 1);
+  }, []);
+
+  return {
+    mensagens,
+    carregando,
+    progresso,
+    erro,
+    enviar,
+    cancelar,
+    editarMensagem,
+    cancelarEdicao,
+    pedidoEdicao,
+    pedidoCancelamento,
+    idEmEdicao,
+    sessoes,
+    carregandoSessoes,
+    carregandoSessao,
+    sessaoAtiva,
+    artigosSessao,
+    selecionarSessao,
+    novaSessao,
+    excluirSessao,
+    areas,
+    carregandoAreas,
+    limitesAnos,
+    filtros,
+    definirFiltro,
+  };
+}
