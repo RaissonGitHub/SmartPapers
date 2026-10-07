@@ -1,17 +1,23 @@
 import axios from "axios";
 
+export const BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
+
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || "http://localhost:8000",
+  baseURL: BASE_URL,
   withCredentials: true,
 });
 
 let csrfToken = null;
 const METODOS_MUTAVEIS = ["post", "put", "patch", "delete"];
 
-async function obterCsrf() {
+export async function obterCsrf() {
   const { data } = await api.get("/auth/csrf/");
   csrfToken = data.csrfToken;
   return csrfToken;
+}
+
+export async function tokenCsrf() {
+  return csrfToken || (await obterCsrf());
 }
 
 function invalidarCsrf() {
@@ -91,7 +97,7 @@ export async function sair() {
   try {
     await api.post("/auth/logout/");
   } catch {
-    // ignora falhas de rede/encerramento
+    return;
   } finally {
     invalidarCsrf();
   }

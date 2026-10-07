@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import ChatArea from "../components/ChatArea";
 import Drop from "../components/Drop";
 import InputChat from "../components/InputChat";
@@ -17,6 +17,7 @@ export default function Index({
   const {
     mensagens,
     carregando,
+    progresso,
     erro,
     enviar,
     cancelar,
@@ -45,10 +46,10 @@ export default function Index({
   const [tutorialSolicitado, setTutorialSolicitado] = useState(false);
   const tutorialAberto = tutorialSolicitado || tutorialVisto === false;
   const [provedor, setProvedor] = useState("gemini");
-const [apiKey, setApiKey] = useState("");
-const [apiKeyDefinida, setApiKeyDefinida] = useState(false);
-const [chaveEditada, setChaveEditada] = useState(false);
-const [modelo, setModelo] = useState("");
+  const [apiKey, setApiKey] = useState("");
+  const [apiKeyDefinida, setApiKeyDefinida] = useState(false);
+  const [chaveEditada, setChaveEditada] = useState(false);
+  const [modelo, setModelo] = useState("");
   const [ollamaHabilitado, setOllamaHabilitado] = useState(null);
   const ultimasPrefsRef = useRef(null);
   const alteradoRef = useRef(false);
@@ -93,7 +94,8 @@ const [modelo, setModelo] = useState("");
     const api_key = chaveEditada && apiKey.trim() ? apiKey.trim() : undefined;
     const atuais = { provider: provedor, api_key, modelo };
     if (!prefsCarregadasRef.current) return;
-    if (JSON.stringify(atuais) === JSON.stringify(ultimasPrefsRef.current)) return;
+    if (JSON.stringify(atuais) === JSON.stringify(ultimasPrefsRef.current))
+      return;
     alteradoRef.current = true;
     const id = setTimeout(() => {
       salvarPreferencias(atuais)
@@ -111,9 +113,22 @@ const [modelo, setModelo] = useState("");
     setApiKey(valor);
   };
 
+  const editarMensagemComArquivo = useCallback(
+    (texto, id) => {
+      const arquivo = editarMensagem(texto, id);
+      setArquivo(arquivo ?? null);
+    },
+    [editarMensagem],
+  );
+
+  const cancelarEdicaoComArquivo = useCallback(() => {
+    setArquivo(null);
+    cancelarEdicao();
+  }, [cancelarEdicao]);
+
   return (
     <>
-      <div className="flex h-screen flex-col overflow-hidden">
+      <div className="flex h-dvh flex-col overflow-hidden">
         <Nav
           className={"w-full"}
           usuario={usuario}
@@ -158,8 +173,9 @@ const [modelo, setModelo] = useState("");
                 className="min-h-0 w-full flex-1"
                 mensagens={mensagens}
                 carregando={carregando}
-                onEditar={editarMensagem}
-                onCancelarEdicao={cancelarEdicao}
+                progresso={progresso}
+                onEditar={editarMensagemComArquivo}
+                onCancelarEdicao={cancelarEdicaoComArquivo}
                 idEmEdicao={idEmEdicao}
               />
             )}
@@ -186,7 +202,7 @@ const [modelo, setModelo] = useState("");
               chaveEditada={chaveEditada}
               pedidoEdicao={pedidoEdicao}
               pedidoCancelamento={pedidoCancelamento}
-              onCancelarEdicao={cancelarEdicao}
+              onCancelarEdicao={cancelarEdicaoComArquivo}
             />
           </div>
         </div>

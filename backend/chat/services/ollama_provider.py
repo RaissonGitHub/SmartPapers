@@ -6,6 +6,7 @@ from typing import Any, ClassVar
 
 from .base import LLMProvider
 from .cancelamento import checar_cancelamento
+from .orcamento import checar_orcamento
 
 
 class OllamaProvider(LLMProvider):
@@ -45,6 +46,7 @@ class OllamaProvider(LLMProvider):
         **kwargs,
     ) -> Any:
         checar_cancelamento()
+        checar_orcamento("llm")
         topo, options = self._split_kwargs(kwargs)
         options.setdefault("num_ctx", self.num_ctx)
         return self._cliente.chat(
@@ -61,6 +63,7 @@ class OllamaProvider(LLMProvider):
         **kwargs,
     ) -> str:
         checar_cancelamento()
+        checar_orcamento("llm")
         topo, options = self._split_kwargs(kwargs)
         options.setdefault("num_ctx", self.num_ctx)
         resposta = self._cliente.chat(

@@ -1,13 +1,7 @@
 import Modal from "@mui/material/Modal";
 import { useState } from "react";
 import { autoresCompletos, autoresResumidos } from "../utils/autores";
-export default function ArtigoCard({
-  titulo,
-  resumo,
-  autores,
-  ano,
-  link,
-}) {
+export default function ArtigoCard({ titulo, resumo, autores, ano, link }) {
   const [open, setOpen] = useState(false);
   const handleOpen = () => setOpen(true);
   const handleClose = () => setOpen(false);
@@ -40,44 +34,44 @@ export default function ArtigoCard({
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
           onClick={handleClose}
         >
-            <div
-              className="relative max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-lg border border-borda bg-fundo p-6 text-gray-100 shadow-2xl"
-              onClick={(e) => e.stopPropagation()}
+          <div
+            className="relative max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-lg border border-borda bg-fundo p-6 text-gray-100 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              className="absolute right-4 top-3 text-2xl leading-none text-gray-400 hover:text-white"
+              aria-label="Fechar modal"
+              onClick={() => handleClose()}
             >
-              <button
-                className="absolute right-4 top-3 text-2xl leading-none text-gray-400 hover:text-white"
-                aria-label="Fechar modal"
-                onClick={() => handleClose()}
-              >
-                ×
-              </button>
+              ×
+            </button>
 
-              <div className="pr-8 text-xl font-semibold">{titulo}</div>
+            <div className="pr-8 text-xl font-semibold">{titulo}</div>
 
-              <div className="mt-3 flex flex-wrap items-center gap-2 text-sm text-gray-400">
-                <span>
-                  {autoresTodos}
-                  {autoresTodos && " · "}
-                  {ano || "S/D"} ·{" "}
-                </span>
-              </div>
-
-              <div className="mt-5 whitespace-pre-line text-sm leading-6 text-gray-300">
-                {resumo || "Resumo não disponível."}
-              </div>
-
-              {link && (
-                <a
-                  className="mt-6 inline-block text-sm font-medium text-blue-400 hover:text-blue-300 hover:underline"
-                  href={link}
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  Acessar artigo original →
-                </a>
-              )}
+            <div className="mt-3 flex flex-wrap items-center gap-2 text-sm text-gray-400">
+              <span>
+                {autoresTodos}
+                {autoresTodos && " · "}
+                {ano || "S/D"} ·{" "}
+              </span>
             </div>
+
+            <div className="mt-5 whitespace-pre-line text-sm leading-6 text-gray-300">
+              {resumo || "Resumo não disponível."}
+            </div>
+
+            {link && (
+              <a
+                className="mt-6 inline-block text-sm font-medium text-blue-400 hover:text-blue-300 hover:underline"
+                href={link}
+                target="_blank"
+                rel="noreferrer"
+              >
+                Acessar artigo original →
+              </a>
+            )}
           </div>
+        </div>
       </Modal>
     </>
   );

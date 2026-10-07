@@ -2,7 +2,13 @@ import MenuIcon from "@mui/icons-material/Menu";
 import Tooltip from "@mui/material/Tooltip";
 import HelpOutlineIcon from "@mui/icons-material/HelpOutline";
 
-export default function Nav({ className, usuario, onSair, onMenu, onTutorial }) {
+export default function Nav({
+  className,
+  usuario,
+  onSair,
+  onMenu,
+  onTutorial,
+}) {
   return (
     <nav
       className={`flex h-12 shrink-0 flex-row items-center justify-between border-b-2 border-b-borda bg-fundo ${className}`}

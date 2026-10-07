@@ -37,9 +37,6 @@ class ArtigosConfig(AppConfig):
     def ready(self):
         if not _deve_preaquecer():
             return
-        # No gunicorn (com --preload) o ready() roda só no master, uma vez:
-        # carregar o SPECTER2 de forma síncrona garante o modelo pronto antes
-        # do fork dos workers (sem thread/fork concorrente).
         if os.path.basename(sys.argv[0] or "").startswith("gunicorn"):
             _preaquecer()
             return

@@ -38,10 +38,7 @@ def _areas_existentes() -> tuple[str, ...]:
         return _areas_cache
 
     with _areas_cache_lock:
-        if (
-            _areas_cache is not None
-            and agora - _areas_cache_criacao < AREAS_CACHE_TTL
-        ):
+        if _areas_cache is not None and agora - _areas_cache_criacao < AREAS_CACHE_TTL:
             return _areas_cache
         areas = tuple(
             Artigo.objects.exclude(area_conhecimento="")

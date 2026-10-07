@@ -55,6 +55,7 @@ const mapearMensagens = (mensagens) =>
 export default function useConversa() {
   const [mensagens, setMensagens] = useState([]);
   const [carregamento, setCarregamento] = useState(null);
+  const [progresso, setProgresso] = useState("");
   const [erro, setErro] = useState("");
   const [sessaoId, setSessaoId] = useState(null);
   const [sessaoAtiva, setSessaoAtiva] = useState(null);
@@ -64,7 +65,10 @@ export default function useConversa() {
   const [carregandoSessao, setCarregandoSessao] = useState(false);
   const [areas, setAreas] = useState([]);
   const [carregandoAreas, setCarregandoAreas] = useState(true);
-  const [limitesAnos, setLimitesAnos] = useState({ anoMinimo: 0, anoMaximo: 0 });
+  const [limitesAnos, setLimitesAnos] = useState({
+    anoMinimo: 0,
+    anoMaximo: 0,
+  });
   const [filtros, setFiltros] = useState({
     anoInicio: null,
     anoFim: null,
@@ -76,6 +80,7 @@ export default function useConversa() {
   const abortControllerRef = useRef(null);
   const requisicaoIdRef = useRef(null);
   const editandoRef = useRef(false);
+  const arquivosPorConteudoRef = useRef(new Map());
   const [pedidoEdicao, setPedidoEdicao] = useState({ texto: "", seq: 0 });
   const [pedidoCancelamento, setPedidoCancelamento] = useState(0);
   const [idEmEdicao, setIdEmEdicao] = useState(null);
@@ -100,7 +105,7 @@ export default function useConversa() {
           });
         }
       } catch {
-        // áreas indisponíveis não impedem o chat
+        return;
       } finally {
         if (!cancelado) setCarregandoAreas(false);
       }
@@ -136,7 +141,7 @@ export default function useConversa() {
       const lista = await listarSessoes();
       setSessoes(lista);
     } catch {
-      // ignora falha ao atualizar a lista
+      return;
     }
   }, []);
 
@@ -144,6 +149,7 @@ export default function useConversa() {
     async (pk) => {
       editandoRef.current = false;
       setIdEmEdicao(null);
+      arquivosPorConteudoRef.current.clear();
       definirSessaoVisualizada(`sessao-${pk}`);
       setCarregandoSessao(true);
       setErro("");
@@ -165,6 +171,7 @@ export default function useConversa() {
   const novaSessao = useCallback(() => {
     editandoRef.current = false;
     setIdEmEdicao(null);
+    arquivosPorConteudoRef.current.clear();
     definirSessaoVisualizada(`nova-${Date.now()}`);
     setMensagens([]);
     setArtigosSessao([]);
@@ -194,6 +201,7 @@ export default function useConversa() {
     async (texto, arquivo = null, requisicao = undefined, opcoes = {}) => {
       const conteudo = texto.trim();
       if (!conteudo || carregando) return;
+      if (arquivo) arquivosPorConteudoRef.current.set(conteudo, arquivo);
       const ehEdicao = editandoRef.current;
       editandoRef.current = false;
       if (ehEdicao) setIdEmEdicao(null);
@@ -207,6 +215,7 @@ export default function useConversa() {
           : `req-${Date.now()}-${Math.random().toString(36).slice(2)}`;
       requisicaoIdRef.current = requisicaoId;
       setErro("");
+      setProgresso("");
       setCarregamento({ chave: chaveDaSessao });
       const emitidaAgora = new Date().toISOString();
       const idOtimista = `temporaria-${emitidaAgora}`;
@@ -250,6 +259,11 @@ export default function useConversa() {
           requisicao_id: requisicaoId,
           editar: ehEdicao,
           signal: controller.signal,
+          aoProgresso: (texto) => {
+            if (chaveSessaoVisualizadaRef.current === chaveDaSessao) {
+              setProgresso(texto);
+            }
+          },
           ...opcoes,
         });
         if (chaveSessaoVisualizadaRef.current === chaveDaSessao) {
@@ -260,7 +274,8 @@ export default function useConversa() {
                 {
                   id: resultado.sessao,
                   sessao_id: resultado.sessao_id,
-                  titulo: conteudo.length > 500 ? conteudo.slice(0, 500) : conteudo,
+                  titulo:
+                    conteudo.length > 500 ? conteudo.slice(0, 500) : conteudo,
                   criada_em: emitidaAgora,
                 },
                 ...prev,
@@ -310,6 +325,7 @@ export default function useConversa() {
         if (requisicaoIdRef.current === requisicaoId) {
           requisicaoIdRef.current = null;
         }
+        setProgresso("");
         setCarregamento((atual) =>
           atual?.chave === chaveDaSessao ? null : atual,
         );
@@ -327,9 +343,12 @@ export default function useConversa() {
   }, []);
 
   const editarMensagem = useCallback((texto, id = null) => {
+    const conteudo = (texto ?? "").trim();
+    const arquivo = arquivosPorConteudoRef.current.get(conteudo) ?? null;
     setPedidoEdicao((prev) => ({ texto, seq: prev.seq + 1 }));
     setIdEmEdicao(id ?? null);
     editandoRef.current = true;
+    return arquivo;
   }, []);
 
   const cancelarEdicao = useCallback(() => {
@@ -342,6 +361,7 @@ export default function useConversa() {
   return {
     mensagens,
     carregando,
+    progresso,
     erro,
     enviar,
     cancelar,

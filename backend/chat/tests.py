@@ -1,20 +1,33 @@
+import json
+import threading
 from unittest.mock import patch
 
 from artigos.models.artigo import Artigo
 from django.contrib.auth.models import User
+from django.core.cache import cache
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase
 from rest_framework.test import APIClient
 
 from chat.models import Mensagem, Sessao
+from chat.services.cancelamento import CHAVE_PREFIXO, RequisicaoCancelada
 from chat.services.gemini_provider import GeminiProvider
+from chat.services.orcamento import (
+    TempoEsgotado,
+    checar_orcamento,
+    definir_orcamento,
+    limpar_orcamento,
+    tempo_restante,
+)
 from chat.services.pdf_service import _parsear_resumo_secoes
 from chat.services.providers import OllamaProvider
 from chat.services.rag import (
+    _intencao_busca,
     _normalizar_anos_tool_call,
     _substituir_ancoras_por_titulo,
     selecionar_pdf,
 )
+from chat.services.refinamento import rerank_por_aderencia
 
 
 class NormalizacaoAnosToolCallTestCase(TestCase):
@@ -805,7 +818,7 @@ class PdfRobustezFormatacaoTestCase(TestCase):
         self.assertEqual(pdf_id, 1)
         self.assertEqual(len(secoes), 1)
 
-    def test_selecionar_pdf_null_explicito_nao_forca_fallback(self):
+def test_selecionar_pdf_null_explicito_nao_forca_fallback(self):
         from unittest.mock import Mock
 
         provedor = Mock()
@@ -819,3 +832,381 @@ class PdfRobustezFormatacaoTestCase(TestCase):
 
         self.assertIsNone(pdf_id)
         self.assertEqual(secoes, [])
+
+
+class OrcamentoTempoTestCase(TestCase):
+    def tearDown(self):
+        limpar_orcamento()
+
+    def test_sem_orcamento_aberto_nao_ha_limite(self):
+        limpar_orcamento()
+        self.assertIsNone(tempo_restante())
+        checar_orcamento("busca")
+
+    def test_tempo_restante_conta_regressivamente(self):
+        definir_orcamento(30)
+        restante = tempo_restante()
+        self.assertIsNotNone(restante)
+        self.assertGreater(restante, 0)
+        self.assertLessEqual(restante, 30)
+
+    def test_orcamento_zerado_esgota_na_hora(self):
+        definir_orcamento(0)
+        self.assertEqual(tempo_restante(), 0)
+        with self.assertRaises(TempoEsgotado) as contexto:
+            checar_orcamento("busca")
+        self.assertEqual(contexto.exception.etapa, "busca")
+        self.assertIn("demorou demais", str(contexto.exception))
+
+    def test_limpar_orcamento_remove_o_limite(self):
+        definir_orcamento(0)
+        limpar_orcamento()
+        checar_orcamento("busca")
+
+
+class GeminiTimeoutOrcamentoTestCase(TestCase):
+    def tearDown(self):
+        limpar_orcamento()
+
+    def test_timeout_padrao_sem_orcamento(self):
+        provedor = GeminiProvider(modelo="teste", api_key="chave")
+        with patch("google.genai.Client") as mock_client:
+            provedor._get_client()
+        opcoes = mock_client.call_args.kwargs["http_options"]
+        self.assertEqual(opcoes.timeout, 90_000)
+
+    def test_timeout_usa_o_tempo_restante_do_orcamento(self):
+        definir_orcamento(12)
+        provedor = GeminiProvider(modelo="teste", api_key="chave")
+        with patch("google.genai.Client") as mock_client:
+            provedor._get_client()
+        opcoes = mock_client.call_args.kwargs["http_options"]
+        self.assertGreater(opcoes.timeout, 5_000)
+        self.assertLessEqual(opcoes.timeout, 12_000)
+
+    def test_orcamento_no_fim_ainda_usa_o_piso(self):
+        definir_orcamento(0)
+        provedor = GeminiProvider(modelo="teste", api_key="chave")
+        with patch("google.genai.Client") as mock_client:
+            provedor._get_client()
+        opcoes = mock_client.call_args.kwargs["http_options"]
+        self.assertEqual(opcoes.timeout, 5_000)
+
+    def test_teto_configuravel_por_env(self):
+        import chat.services.gemini_provider as modulo
+
+        original = modulo.GEMINI_TIMEOUT_SEGUNDOS
+        modulo.GEMINI_TIMEOUT_SEGUNDOS = 7.0
+        try:
+            provedor = GeminiProvider(modelo="teste", api_key="chave")
+            with patch("google.genai.Client") as mock_client:
+                provedor._get_client()
+            opcoes = mock_client.call_args.kwargs["http_options"]
+            self.assertEqual(opcoes.timeout, 7_000)
+        finally:
+            modulo.GEMINI_TIMEOUT_SEGUNDOS = original
+
+
+class AgenteStreamingTestCase(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.usuario = User.objects.create_user(username="fluxo", password="senha123")
+        self.client.force_authenticate(user=self.usuario)
+        self.requisicao_id = "req-teste-stream"
+
+    def _eventos(self, resposta):
+        brutos = list(resposta.streaming_content)
+        return [json.loads(bruto.decode("utf-8")) for bruto in brutos]
+
+    def _enviar(self, corpo=None):
+        dados = {
+            "mensagem": "procure artigos",
+            "requisicao_id": self.requisicao_id,
+            "stream": "true",
+        }
+        dados.update(corpo or {})
+        return self.client.post("/chat/agente/", dados, format="json")
+
+    @patch("chat.views.agent_chat.processar_e_salvar")
+    def test_query_stream_ativa_o_streaming(self, mock_processar):
+        mock_processar.return_value = {"resposta": "ok"}
+
+        resposta = self.client.post(
+            "/chat/agente/?stream=1",
+            {"mensagem": "oi", "requisicao_id": self.requisicao_id},
+            format="json",
+        )
+
+        self.assertEqual(resposta.status_code, 200)
+        self.assertEqual(self._eventos(resposta)[-1]["tipo"], "resultado")
+
+    @patch("chat.views.agent_chat.processar_e_salvar")
+    def test_resultado_chega_como_evento_ndjson(self, mock_processar):
+        mock_processar.return_value = {
+            "resposta": "Achei artigos.",
+            "sessao_id": "abc",
+            "sessao": 7,
+            "mensagens": [],
+        }
+
+        resposta = self._enviar()
+
+        self.assertEqual(resposta.status_code, 200)
+        self.assertEqual(resposta["Content-Type"], "application/x-ndjson")
+        self.assertEqual(resposta["X-Accel-Buffering"], "no")
+        eventos = self._eventos(resposta)
+        self.assertEqual(eventos[-1]["tipo"], "resultado")
+        self.assertEqual(eventos[-1]["dados"]["resposta"], "Achei artigos.")
+
+    @patch("chat.views.agent_chat.processar_e_salvar")
+    def test_etapas_sao_publicadas_antes_do_resultado(self, mock_processar):
+        def fake(**kwargs):
+            from chat.services import progresso
+
+            progresso.avancar("busca", "Buscando artigos na base…")
+            return {"resposta": "ok", "sessao_id": "abc", "sessao": 7, "mensagens": []}
+
+        mock_processar.side_effect = fake
+
+        eventos = self._eventos(self._enviar())
+
+        tipos = [evento["tipo"] for evento in eventos]
+        self.assertIn("etapa", tipos)
+        self.assertLess(tipos.index("etapa"), tipos.index("resultado"))
+        etapa = next(e for e in eventos if e["tipo"] == "etapa")
+        self.assertEqual(etapa["etapa"], "busca")
+        self.assertEqual(etapa["texto"], "Buscando artigos na base…")
+
+    @patch("chat.views.agent_chat.processar_e_salvar")
+    def test_campo_stream_aceita_valores_verdadeiros(self, mock_processar):
+        mock_processar.return_value = {"resposta": "ok"}
+
+        resposta = self._enviar({"stream": "sim"})
+
+        self.assertEqual(resposta.status_code, 200)
+        self.assertEqual(self._eventos(resposta)[-1]["tipo"], "resultado")
+
+    @patch("chat.views.agent_chat.processar_e_salvar")
+    def test_sem_stream_continua_respondendo_json(self, mock_processar):
+        mock_processar.return_value = {"resposta": "ok", "sessao_id": "abc"}
+
+        resposta = self.client.post(
+            "/chat/agente/",
+            {"mensagem": "oi", "requisicao_id": self.requisicao_id},
+            format="json",
+        )
+
+        self.assertEqual(resposta.status_code, 200)
+        self.assertEqual(resposta.data["resposta"], "ok")
+        self.assertTrue(resposta["Content-Type"].startswith("application/json"))
+
+    @patch("chat.views.agent_chat.processar_e_salvar")
+    def test_erro_do_provedor_vira_evento_de_erro(self, mock_processar):
+        from google.genai import errors as erros_genai
+
+        mock_processar.side_effect = erros_genai.ClientError(
+            429, {"error": {"code": 429, "message": "Quota exceeded for model."}}
+        )
+
+        eventos = self._eventos(
+            self._enviar({"provider": "gemini", "api_key": "AIzaSyCHAVESECRETA1234"})
+        )
+
+        self.assertEqual(eventos[-1]["tipo"], "erro")
+        self.assertEqual(eventos[-1]["status"], 502)
+        self.assertIn("Erro na chamada ao Gemini", eventos[-1]["erro"])
+        self.assertNotIn("AIzaSyCHAVESECRETA1234", eventos[-1]["erro"])
+
+    @patch("chat.views.agent_chat.processar_e_salvar")
+    def test_tempo_esgotado_via_504_no_stream(self, mock_processar):
+        mock_processar.side_effect = TempoEsgotado("busca")
+
+        eventos = self._eventos(self._enviar())
+
+        self.assertEqual(eventos[-1]["tipo"], "erro")
+        self.assertEqual(eventos[-1]["status"], 504)
+        self.assertIn("demorou demais", eventos[-1]["erro"])
+
+    @patch("chat.views.agent_chat.processar_e_salvar")
+    def test_tempo_esgotado_via_504_no_json(self, mock_processar):
+        mock_processar.side_effect = TempoEsgotado("busca")
+
+        resposta = self.client.post(
+            "/chat/agente/",
+            {"mensagem": "oi", "requisicao_id": self.requisicao_id},
+            format="json",
+        )
+
+        self.assertEqual(resposta.status_code, 504)
+        self.assertIn("demorou demais", resposta.data["erro"])
+
+    @patch("chat.views.agent_chat.processar_e_salvar")
+    def test_valor_invalido_do_provedor_via_400_no_stream(self, mock_processar):
+        mock_processar.side_effect = ValueError("Provedor desconhecido: 'x'.")
+
+        eventos = self._eventos(self._enviar())
+
+        self.assertEqual(eventos[-1]["tipo"], "erro")
+        self.assertEqual(eventos[-1]["status"], 400)
+        self.assertIn("Provedor desconhecido", eventos[-1]["erro"])
+
+    @patch("chat.views.agent_chat.processar_e_salvar")
+    def test_cancelamento_vira_evento_de_cancelada(self, mock_processar):
+        mock_processar.side_effect = RequisicaoCancelada()
+
+        eventos = self._eventos(self._enviar())
+
+        self.assertEqual(eventos[-1]["tipo"], "cancelada")
+        self.assertEqual(eventos[-1]["requisicao_id"], self.requisicao_id)
+
+    @patch("chat.views.agent_chat.processar_e_salvar")
+    def test_cliente_desistir_cancela_o_pipeline(self, mock_processar):
+        liberado = threading.Event()
+
+        def fake(**kwargs):
+            from chat.services import progresso
+
+            progresso.avancar("busca", "Busy…")
+            liberado.wait(5)
+            return {"resposta": "ok"}
+
+        mock_processar.side_effect = fake
+
+        resposta = self._enviar()
+        # streaming_content vem embrulhado em map(), que não tem close(); o
+        # gerador de verdade (e o seu finally) fica em _iterator.
+        gerador = resposta._iterator
+        self.assertIn(b"etapa", next(gerador))
+        gerador.close()
+
+        self.assertTrue(
+            cache.get(CHAVE_PREFIXO + self.requisicao_id),
+            "esperava o cancelamento cooperativo após o cliente desistir",
+        )
+        liberado.set()
+
+    @patch("chat.views.agent_chat.processar_e_salvar")
+    def test_pdf_com_stream_tambem_responde_em_ndjson(self, mock_processar):
+        mock_processar.return_value = {"resposta": "ok", "pdf_nome": "nota.pdf"}
+        valido = SimpleUploadedFile("nota.pdf", b"%PDF-1.7\nconteudo")
+        dados = {
+            "mensagem": "explique o pdf",
+            "requisicao_id": self.requisicao_id,
+            "stream": "1",
+            "pdf": valido,
+        }
+
+        resposta = self.client.post("/chat/agente/", dados, format="multipart")
+
+        self.assertEqual(resposta.status_code, 200)
+        self.assertEqual(self._eventos(resposta)[-1]["tipo"], "resultado")
+
+
+class IntencaoBuscaTestCase(TestCase):
+    def test_detecta_pedidos_explicitos(self):
+        for frase in [
+            "busque artigos sobre o tema",
+            "procure referências semelhantes",
+            "consegue trazer artigos que tratam do mesmo tema?",
+            "pesquise papers relacionados",
+            "recomende artigos científicos",
+            "com base no artigo procure sobre o mesmo tema",
+        ]:
+            self.assertTrue(_intencao_busca(frase), frase)
+
+    def test_nao_detecta_perguntas_conceituais(self):
+        for frase in [
+            "o que é machine learning?",
+            "explique a fotossíntese",
+            "resuma o que o pdf diz",
+            "por que o céu é azul?",
+        ]:
+            self.assertFalse(_intencao_busca(frase), frase)
+
+    def test_nao_detecta_consultas_curtas_vagas(self):
+        self.assertFalse(_intencao_busca("ok"))
+        self.assertFalse(_intencao_busca("obrigado"))
+        self.assertFalse(_intencao_busca(""))
+
+
+class RerankAderenciaTestCase(TestCase):
+    def setUp(self):
+        self.artigos = [
+            {
+                "id": 1,
+                "titulo": "The Netflix Recommender System",
+                "autores": [],
+                "ano_publicacao": 2015,
+                "area_conhecimento": "Computer Science",
+                "similaridade": 94.3,
+            },
+            {
+                "id": 2,
+                "titulo": "Graph Neural Networks in Recommender Systems",
+                "autores": [],
+                "ano_publicacao": 2022,
+                "area_conhecimento": "Computer Science",
+                "similaridade": 90.0,
+            },
+            {
+                "id": 3,
+                "titulo": "Bibliometrics for academic publishing",
+                "autores": [],
+                "ano_publicacao": 2021,
+                "area_conhecimento": "Decision Sciences",
+                "similaridade": 88.0,
+            },
+        ]
+
+    def _provedor(self, resposta):
+        from unittest.mock import Mock
+
+        provedor = Mock()
+        provedor.chat_simple.return_value = resposta
+        return provedor
+
+    def test_marcador_ausente_mantem_ranking_vetorial(self):
+        provedor = self._provedor(
+            "Os artigos tratam de recomendações e processamento de linguagem."
+        )
+
+        resultado = rerank_por_aderencia("recomendação de artigos", self.artigos, 2, provedor)
+
+        self.assertEqual([a["id"] for a in resultado], [1, 2])
+
+    def test_marcador_vazio_com_candidatos_fracos_devolve_vazia(self):
+        fracos = [
+            {"id": 1, "titulo": "A", "similaridade": 45.0},
+            {"id": 2, "titulo": "B", "similaridade": 40.0},
+        ]
+        provedor = self._provedor("Nenhum artigo aderente.\nARTIGOS_ADERENTES: []")
+
+        resultado = rerank_por_aderencia(
+            "Pergunta fora do escopo da base", fracos, 2, provedor
+        )
+
+        self.assertEqual(resultado, [])
+
+    def test_marcador_vazio_com_candidatos_fortes_mantem_vetorial(self):
+        provedor = self._provedor("Nenhum artigo aderente.\nARTIGOS_ADERENTES: []")
+
+        resultado = rerank_por_aderencia("pergunta", self.artigos, 2, provedor)
+
+        self.assertEqual([a["id"] for a in resultado], [1, 2])
+
+    def test_marcador_reordena_por_aderencia(self):
+        provedor = self._provedor("Preferência por bibliometria.\nARTIGOS_ADERENTES: [3, 1]")
+
+        resultado = rerank_por_aderencia("pergunta", self.artigos, 2, provedor)
+
+        self.assertEqual([a["id"] for a in resultado], [3, 1])
+
+    def test_falha_no_provedor_mantem_ranking_vetorial(self):
+        from unittest.mock import Mock
+
+        provedor = Mock()
+        provedor.chat_simple.side_effect = RuntimeError("gemini indisponível")
+
+        resultado = rerank_por_aderencia("pergunta", self.artigos, 2, provedor)
+
+        self.assertEqual([a["id"] for a in resultado], [1, 2])

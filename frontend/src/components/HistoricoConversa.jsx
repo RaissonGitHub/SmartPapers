@@ -13,7 +13,7 @@ export default function HistoricoConversa({
   const textoTitulo = titulo || "Nova conversa";
   return (
     <div
-      className={`group flex items-center gap-1 rounded px-3 py-2 hover:cursor-pointer hover:bg-[#302f2f] ${
+      className={`flex items-center gap-1 rounded px-3 py-2 hover:cursor-pointer hover:bg-[#302f2f] ${
         ativo ? "bg-[#302f2f]" : ""
       }`}
     >
@@ -32,7 +32,7 @@ export default function HistoricoConversa({
             e.stopPropagation();
             onExcluir?.();
           }}
-          className="shrink-0 rounded p-1 opacity-0 transition-opacity group-hover:opacity-100 hover:cursor-pointer hover:bg-borda"
+          className="shrink-0 rounded p-1 hover:cursor-pointer hover:bg-borda"
           sx={{
             color: "#4b5563",
             "&:hover": {

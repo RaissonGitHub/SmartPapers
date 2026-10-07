@@ -7,7 +7,8 @@ import numpy as np
 import pymupdf
 from artigos.services.gerar_embedding_service import gerar_embedding_lote
 
-from .cancelamento import checar_cancelamento
+from .cancelamento import checar_cancelamento, RequisicaoCancelada
+from .orcamento import TempoEsgotado, checar_orcamento
 from .providers import LLMProvider, usar_provedor
 from .refinamento import _limpar_pensamento
 
@@ -240,6 +241,8 @@ def secoes_relevantes(
         vetores_consultas = np.asarray(gerar_embedding_lote(consultas_limpas))
         if vetores_secoes.size == 0 or vetores_consultas.size == 0:
             return []
+    except (RequisicaoCancelada, TempoEsgotado):
+        raise
     except Exception as exc:
         print(f"[PDF] Falha ao embeddar seções/consultas: {exc}")
         return secoes[:limite]
@@ -271,6 +274,8 @@ def processar_pdf(
     provedor: LLMProvider | None = None,
 ) -> list[dict]:
     """Extrai, secciona e filtra as seções relevantes de um PDF anexado."""
+    checar_cancelamento()
+    checar_orcamento("pdf")
     texto = extrair_texto_pdf(arquivo)
     if not texto.strip():
         print("[PDF] Nenhum texto extraído do anexo.")

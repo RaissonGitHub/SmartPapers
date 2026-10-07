@@ -1,3 +1,5 @@
+name: smartpapers_dev
+
 services:
   db:
     image: pgvector/pgvector:pg16
@@ -40,6 +42,7 @@ services:
     environment:
       POSTGRES_HOST: db
       OLLAMA_HOST: http://host.docker.internal:11434
+      OLLAMA_ENABLED: "0"
     depends_on:
       db:
         condition: service_healthy

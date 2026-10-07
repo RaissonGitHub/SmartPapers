@@ -111,9 +111,7 @@ DATABASES = {
     }
 }
 
-# Cache compartilhado (cancelamento de requisições entre workers).
-# Sem REDIS_URL, usa LocMemCache — que só enxerga o próprio processo, portanto
-# o cancelamento funciona apenas com um único worker do gunicorn.
+
 REDIS_URL = os.getenv("REDIS_URL", "").strip()
 if REDIS_URL:
     CACHES = {
@@ -236,13 +234,8 @@ CSRF_TRUSTED_ORIGINS = [
 
 
 # --- HTTPS/produção ---
-# O Django fica atrás do nginx (ou load balancer) que termina o TLS; o header
-# abaixo + X-Forwarded-Proto fazem request.is_secure() funcionar.
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 
-# Padrão seguro: quando DEBUG=False, cookies de sessão/CSRF só via HTTPS e
-# redirecionamento para HTTPS. Pode ser desligado com env em infraestrutura
-# que termina TLS externamente.
 SESSION_COOKIE_SECURE = _env_bool("DJANGO_SECURE_COOKIES", "false" if DEBUG else "true")
 CSRF_COOKIE_SECURE = _env_bool("DJANGO_SECURE_COOKIES", "false" if DEBUG else "true")
 SECURE_SSL_REDIRECT = _env_bool("DJANGO_SSL_REDIRECT", "false" if DEBUG else "true")

@@ -39,7 +39,7 @@ export default function LoginScreen({ onLogin, onRegistrar }) {
   return (
     <div className="flex h-screen items-center justify-center p-5 bg-black">
       <form
-        className="flex w-full max-w-90 flex-col gap-3.5 rounded-[14px] border border-[#3a3a3a] bg-[#242424] p-8"
+        className="flex w-full max-w-90 flex-col gap-3.5 rounded-[14px] border border-borda bg-[#242424] p-8"
         onSubmit={handleSubmit}
       >
         <div className="text-center text-xl font-semibold tracking-[-0.3px] text-white">
@@ -54,7 +54,7 @@ export default function LoginScreen({ onLogin, onRegistrar }) {
         <label className="flex flex-col gap-1.5 text-xs text-[#888]">
           Usuário
           <input
-            className="rounded-lg border border-[#3a3a3a] bg-[#2e2e2e] px-3 py-2.25 text-sm text-[#e8e8e8] outline-none transition-colors focus:border-[#4f9cf9]"
+            className="rounded-lg border border-borda bg-[#2e2e2e] px-3 py-2.25 text-sm text-[#e8e8e8] outline-none transition-colors focus:border-[#4f9cf9]"
             value={username}
             onChange={(e) => setUsername(e.target.value)}
             autoComplete="username"
@@ -66,7 +66,7 @@ export default function LoginScreen({ onLogin, onRegistrar }) {
         <label className="flex flex-col gap-1.5 text-xs text-[#888]">
           Senha
           <input
-            className="rounded-lg border border-[#3a3a3a] bg-[#2e2e2e] px-3 py-2.25 text-sm text-[#e8e8e8] outline-none transition-colors focus:border-[#4f9cf9]"
+            className="rounded-lg border border-borda bg-[#2e2e2e] px-3 py-2.25 text-sm text-[#e8e8e8] outline-none transition-colors focus:border-[#4f9cf9]"
             type="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
@@ -81,7 +81,7 @@ export default function LoginScreen({ onLogin, onRegistrar }) {
           <label className="flex flex-col gap-1.5 text-xs text-[#888]">
             Confirmar senha
             <input
-              className="rounded-lg border border-[#3a3a3a] bg-[#2e2e2e] px-3 py-2.25 text-sm text-[#e8e8e8] outline-none transition-colors focus:border-[#4f9cf9]"
+              className="rounded-lg border border-borda bg-[#2e2e2e] px-3 py-2.25 text-sm text-[#e8e8e8] outline-none transition-colors focus:border-[#4f9cf9]"
               type="password"
               value={confirmar}
               onChange={(e) => setConfirmar(e.target.value)}

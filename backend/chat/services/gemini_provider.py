@@ -1,11 +1,18 @@
 """Provedor Google Gemini  totalmente isolado."""
 
 import inspect
+import os
 from collections.abc import Callable
 from typing import Any
 
 from .base import LLMProvider
 from .cancelamento import checar_cancelamento
+from .orcamento import checar_orcamento, tempo_restante
+
+# Teto por chamada. O orçamento da requisição pode ser menor, e é ele que vale.
+GEMINI_TIMEOUT_SEGUNDOS = float(os.getenv("GEMINI_TIMEOUT_SEGUNDOS", "90"))
+# Piso para não gerar um timeout de 0ms quando o orçamento está no fim.
+GEMINI_TIMEOUT_MINIMO_SEGUNDOS = 5.0
 
 
 def mensagem_chave_invalida(exc) -> str | None:
@@ -33,14 +40,26 @@ class GeminiProvider(LLMProvider):
         self.api_key = api_key
         self._client = None
 
+    def _timeout_ms(self) -> int:
+        """Timeout da chamada em ms: o que sobrar do orçamento, com teto e piso."""
+        restante = tempo_restante()
+        segundos = GEMINI_TIMEOUT_SEGUNDOS
+        if restante is not None:
+            segundos = min(segundos, restante)
+        return int(max(segundos, GEMINI_TIMEOUT_MINIMO_SEGUNDOS) * 1000)
+
     def _get_client(self):
         if self._client is None:
             from google import genai
+            from google.genai import types
 
+            http_options = types.HttpOptions(timeout=self._timeout_ms())
             if self.api_key:
-                self._client = genai.Client(api_key=self.api_key)
+                self._client = genai.Client(
+                    api_key=self.api_key, http_options=http_options
+                )
             else:
-                self._client = genai.Client()
+                self._client = genai.Client(http_options=http_options)
         return self._client
 
     @staticmethod
@@ -173,6 +192,7 @@ class GeminiProvider(LLMProvider):
         config,
     ):
         """generate_content com degradação para modelos que só aceitam 1 turno."""
+        checar_orcamento("llm")
         checar_cancelamento()
         try:
             return client.models.generate_content(

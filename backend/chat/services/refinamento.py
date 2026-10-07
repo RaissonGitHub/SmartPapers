@@ -1,36 +1,17 @@
 """
 Refinamento da busca semântica.
-
-Etapas que elevam a qualidade da recuperação vetorial:
-
-  1. reformular_busca     : converte o pedido do usuário (PT) em uma query
-     acadêmica em INGLÊS estilo 'título de paper'.
-  2. rerank_por_aderencia : reordena/filtra o top-N mergido da busca dupla
-     pela aderência REAL à pergunta.
 """
 
+import os
 import re
 
 from .providers import LLMProvider, usar_provedor
 
 MARCADOR_ADERENTES = "ARTIGOS_ADERENTES"
 
-_RE_ADERENTES = re.compile(rf"{MARCADOR_ADERENTES}\s*:\s*\[([^\]]*)\]", re.IGNORECASE)
+RERANK_VAZIO_SIM_MIN = float(os.getenv("RERANK_VAZIO_SIM_MIN", "70"))
 
-PROMPT_REFORMULAR = (
-    "Converta pedidos de busca do usuário em uma consulta acadêmica em inglês, "
-    "preservando o objetivo e os conceitos específicos. Não generalize o tema e "
-    "não responda com uma única palavra: expanda expressões vagas com termos de "
-    "literatura do domínio, produzindo um título de paper informativo (3 a 8 "
-    "palavras). Para ensino, por exemplo, use teaching methods, pedagogical "
-    "strategies, lesson planning ou classroom practice conforme o pedido. "
-    "Retorne apenas uma linha de consulta, sem explicação.\n"
-    "Exemplos:\n"
-    "- 'artigos de química industrial e sustentabilidade' -> "
-    "'Sustainable Industrial Chemistry: Green Technologies and Environmental Practices'\n"
-    "- 'procure sobre smartphones' -> "
-    "'Smartphone Use and Its Impact on Health and Daily Life'"
-)
+_RE_ADERENTES = re.compile(rf"{MARCADOR_ADERENTES}\s*:\s*\[([^\]]*)\]", re.IGNORECASE)
 
 PROMPT_RERANK = f"""Você é um revisor de relevância bibliográfica.
 
@@ -63,41 +44,6 @@ def _limpar_pensamento(texto: str) -> str:
     return texto.strip()
 
 
-def _remover_aspas(texto: str) -> str:
-    """Remove aspas que circundam a query gerada."""
-    texto = texto.strip()
-    if len(texto) >= 2 and texto[0] in "\"'“«" and texto[-1] in "\"'”»":
-        return texto[1:-1].strip()
-    return texto
-
-
-def reformular_busca(texto: str, provedor: LLMProvider | None = None) -> str:
-    """Traduz a busca para inglês em estilo de título acadêmico."""
-    p = _resolver_provedor(provedor)
-    if not texto or not texto.strip():
-        return texto
-
-    print(f"[REFINAMENTO] Reformulando busca: {texto[:120]}...")
-    try:
-        resposta = p.chat_simple(
-            messages=[
-                {"role": "system", "content": PROMPT_REFORMULAR},
-                {"role": "user", "content": texto},
-            ],
-            temperature=0,
-        )
-        query = _remover_aspas(_limpar_pensamento(resposta or ""))
-        palavras = query.split()
-        if 3 <= len(palavras) <= 12:
-            print(f"[REFINAMENTO] Query reformulada: {query}")
-            return query
-    except Exception as exc:
-        print(f"[REFINAMENTO] Erro ao reformular busca: {exc}")
-
-    print(f"[REFINAMENTO] Mantendo texto original: {texto.strip()}")
-    return texto.strip()
-
-
 def _formatar_artigos(artigos: list[dict]) -> str:
     """Formata os artigos em texto simples para o rerank."""
     linhas = []
@@ -113,6 +59,11 @@ def _formatar_artigos(artigos: list[dict]) -> str:
             f"    Resumo: {resumo}"
         )
     return "\n".join(linhas)
+
+
+def _marcador_presente(texto: str) -> bool:
+    """Indica se o modelo emitiu o marcador de aderência, mesmo que vazio."""
+    return bool(_RE_ADERENTES.search(texto or ""))
 
 
 def _parsear_indices(texto: str) -> list[int]:
@@ -136,6 +87,11 @@ def _ordenar_por_indices(artigos: list[dict], indices: list[int]) -> list[dict]:
             vistos.add(indice)
             reordenados.append(artigos[indice - 1])
     return reordenados
+
+
+def _melhor_similaridade(artigos: list[dict]) -> float:
+    """Maior similaridade vetorial entre os candidatos da busca."""
+    return max((artigo.get("similaridade") or 0.0 for artigo in artigos), default=0.0)
 
 
 def rerank_por_aderencia(
@@ -167,8 +123,17 @@ def rerank_por_aderencia(
         texto = _limpar_pensamento(resposta or "")
         indices = _parsear_indices(texto)
         print(f"[REFINAMENTO] Indices retornados pelo rerank: {indices}")
+        if not indices and not _marcador_presente(texto):
+            print("[REFINAMENTO] Marcador ausente; mantendo o ranking vetorial.")
+            return artigos[:top_n]
         if not indices:
-            print("[REFINAMENTO] Nenhum artigo aderente encontrado pelo rerank.")
+            if _melhor_similaridade(artigos) >= RERANK_VAZIO_SIM_MIN:
+                print(
+                    "[REFINAMENTO] Rerank vazio com candidatos fortes; "
+                    "mantendo o ranking vetorial."
+                )
+                return artigos[:top_n]
+            print("[REFINAMENTO] Modelo declarou nenhum artigo aderente.")
             return []
         ordenados = (_ordenar_por_indices(artigos, indices) or artigos)[:top_n]
         print(f"[REFINAMENTO] Resultado final do rerank: {len(ordenados)} artigos.")

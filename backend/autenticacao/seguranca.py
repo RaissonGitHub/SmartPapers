@@ -1,13 +1,4 @@
-"""Checagens e sanitização de chaves de API.
-
-Centraliza o padrão das chaves aceitas, a máscara exibida ao cliente e a
-remoção de chaves de mensagens de erro/logs, para que a chave nunca seja
-exposta em texto puro fora do servidor.
-
-Também centraliza o que envolve o cadastro público protegido: regras de nome
-de usuário, chave do registro (liga/desliga via env) e bloqueio por IP após
-tentativas falhas de login.
-"""
+"""Checagens e sanitização de chaves de API."""
 
 import os
 import re

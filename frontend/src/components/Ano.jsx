@@ -11,25 +11,25 @@ export default function Ano({ label, minDate, maxDate, value, onChange }) {
       openTo="year"
       views={["year"]}
       slotProps={{
-          popper: {
-            sx: {
-              "& .MuiPaper-root": {
-                backgroundColor: "#1a1a1a",
+        popper: {
+          sx: {
+            "& .MuiPaper-root": {
+              backgroundColor: "#1a1a1a",
+              color: "#e8e8e8",
+              border: "1px solid #3a3a3a",
+              "& .MuiPickersYear-yearButton": {
                 color: "#e8e8e8",
-                border: "1px solid #3a3a3a",
-                "& .MuiPickersYear-yearButton": {
-                  color: "#e8e8e8",
-                  "&:hover": { backgroundColor: "#2e2e2e" },
-                  "&.Mui-selected": { backgroundColor: "#1e3a5f" },
-                },
-                "& .MuiPickersToolbar-root": {
-                  backgroundColor: "#2e2e2e",
-                  color: "#e8e8e8",
-                },
+                "&:hover": { backgroundColor: "#2e2e2e" },
+                "&.Mui-selected": { backgroundColor: "#1e3a5f" },
+              },
+              "& .MuiPickersToolbar-root": {
+                backgroundColor: "#2e2e2e",
+                color: "#e8e8e8",
               },
             },
           },
-          textField: {
+        },
+        textField: {
           className: "filter-row",
           size: "small",
           fullWidth: true,
@@ -64,21 +64,21 @@ export default function Ano({ label, minDate, maxDate, value, onChange }) {
               color: "white",
             },
             //   icone
-"& .MuiSvgIcon-root": {
-                color: "white",
-              },
+            "& .MuiSvgIcon-root": {
+              color: "white",
             },
           },
-          day: {
-            sx: {
-              color: "#e8e8e8",
-              "&.MuiPickersDay-root": {
-                "&:hover": { backgroundColor: "#2e2e2e" },
-                "&.Mui-selected": { backgroundColor: "#1e3a5f" },
-              },
+        },
+        day: {
+          sx: {
+            color: "#e8e8e8",
+            "&.MuiPickersDay-root": {
+              "&:hover": { backgroundColor: "#2e2e2e" },
+              "&.Mui-selected": { backgroundColor: "#1e3a5f" },
             },
           },
-        }}
-      />
-    );
-  }
+        },
+      }}
+    />
+  );
+}

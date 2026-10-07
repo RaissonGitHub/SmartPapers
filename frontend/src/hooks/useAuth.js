@@ -26,7 +26,6 @@ export default function useAuth() {
     try {
       const dados = await obterTutorial();
       if (!ativoRef.current) return;
-      // ignora respostas obsoletas que chegarem depois de o usuário já ter visto o tutorial
       if (marcadoRef.current) return;
       setTutorialVisto(Boolean(dados?.visto));
     } catch {
@@ -49,17 +48,23 @@ export default function useAuth() {
       });
   }, [carregarTutorial]);
 
-  const login = useCallback(async (username, password) => {
-    const dados = await entrar(username, password);
-    setUsuario(dados.username);
-    await carregarTutorial();
-  }, [carregarTutorial]);
+  const login = useCallback(
+    async (username, password) => {
+      const dados = await entrar(username, password);
+      setUsuario(dados.username);
+      await carregarTutorial();
+    },
+    [carregarTutorial],
+  );
 
-  const registrarUsuario = useCallback(async (username, password) => {
-    const dados = await registrar(username, password);
-    setUsuario(dados.username);
-    await carregarTutorial();
-  }, [carregarTutorial]);
+  const registrarUsuario = useCallback(
+    async (username, password) => {
+      const dados = await registrar(username, password);
+      setUsuario(dados.username);
+      await carregarTutorial();
+    },
+    [carregarTutorial],
+  );
 
   const logout = useCallback(async () => {
     try {
@@ -77,7 +82,7 @@ export default function useAuth() {
     try {
       await salvarTutorial(visto);
     } catch {
-      // mantém o estado local caso a gravação falhe
+      return;
     }
   }, []);
 

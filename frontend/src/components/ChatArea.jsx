@@ -35,6 +35,7 @@ export default function ChatArea({
   className = "",
   mensagens,
   carregando,
+  progresso = "",
   onEditar,
   onCancelarEdicao,
   idEmEdicao = null,
@@ -54,7 +55,7 @@ export default function ChatArea({
 
   return (
     <div
-      className={`${className} overflow-y-auto [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-[#555]`}
+      className={`${className} overflow-y-auto overflow-x-hidden [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-[#555]`}
     >
       <div className="flex min-h-full flex-col gap-4 p-5">
         {mensagens.map((m, i) => {
@@ -73,8 +74,8 @@ export default function ChatArea({
                   <div
                     className={
                       m.papel === "user"
-                        ? `max-w-[85%] rounded-[18px_4px_18px_18px] bg-[#dce9fb] px-4 py-3 text-[#1e3a5f]${emEdicao ? " ring-2 ring-[#4f9cf9]" : ""}`
-                        : "max-w-[85%] rounded-[4px_18px_18px_18px] bg-[#303030] px-4 py-3 text-[#f1f1f1]"
+                        ? `max-w-[85%] wrap-break-word rounded-[18px_4px_18px_18px] bg-[#dce9fb] px-4 py-3 text-[#1e3a5f]${emEdicao ? " ring-2 ring-[#4f9cf9]" : ""}`
+                        : "max-w-[85%] wrap-break-word rounded-[4px_18px_18px_18px] bg-[#303030] px-4 py-3 text-[#f1f1f1]"
                     }
                   >
                     <ReactMarkdown components={MARKDOWN_COMPONENTS}>
@@ -117,9 +118,7 @@ export default function ChatArea({
                     <ContentCopyIcon fontSize="small" className="text-white" />
                   </IconButton>
                 ) : (
-                  <div
-                    className={`absolute ${ultimaMensagemDoUsuario?.id === m.id ? "left-[96%]" : "left-[98%]"} top-full flex transition-opacity group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100`}
-                  >
+                  <div className="absolute right-0 top-full flex transition-opacity group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100">
                     {ultimaMensagemDoUsuario?.id === m.id && !carregando && (
                       <Tooltip
                         title={emEdicao ? "Cancelar edição" : "Editar mensagem"}
@@ -160,7 +159,7 @@ export default function ChatArea({
           );
         })}
 
-        {carregando && <LoadingSteps />}
+        {carregando && <LoadingSteps progresso={progresso} />}
 
         <div ref={bottomRef} />
       </div>

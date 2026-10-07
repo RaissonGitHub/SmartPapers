@@ -13,7 +13,7 @@ class Autor(Base):
         db_table = "autor"
 
     def __str__(self):
-        return f"${self.openalex_id} - ${self.nome}"
+        return f"{self.openalex_id} - {self.nome}"
 
 
 class AutorAdmin(admin.ModelAdmin):

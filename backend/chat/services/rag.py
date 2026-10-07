@@ -10,6 +10,8 @@ from artigos.services.buscar_artigos_service import (
 from artigos.services.gerar_embedding_service import gerar_embedding_lote
 
 from .cancelamento import RequisicaoCancelada, checar_cancelamento
+from .orcamento import checar_orcamento
+from .progresso import avancar
 from .providers import LLMProvider, usar_provedor
 from .refinamento import rerank_por_aderencia
 
@@ -33,9 +35,12 @@ def _system_prompt() -> str:
         "1. Perguntas conceituais ou de conhecimento geral — como 'por que o céu é "
         "azul?', 'o que é machine learning?', 'como funciona a fotossíntese?' — devem "
         "ser respondidas DIRETAMENTE, SEM chamar a ferramenta de busca.\n"
-        "2. Use a ferramenta 'pesquisar_base_artigos' APENAS quando o usuário pedir "
-        "explicitamente para buscar, encontrar, listar ou recomendar artigos, papers "
-        "ou referências científicas.\n"
+        "2. Chame SEMPRE a ferramenta 'pesquisar_base_artigos' quando o usuário pedir "
+        "explicitamente para buscar, encontrar, listar, recomendar ou procurar "
+        "artigos, papers ou referências científicas — inclusive frases como 'procure "
+        "sobre o mesmo tema', 'busque artigos relacionados' ou 'sobre o que o PDF "
+        "aborda', mesmo que a pergunta também tenha natureza conceitual ou se baseie "
+        "em um documento anexado.\n"
         "3. Ao chamar a ferramenta, crie o parâmetro 'search_title_en' obrigatoriamente "
         "em INGLÊS com o título acadêmico equivalente à dúvida do usuário.\n"
         f"4. A base contém artigos somente entre {minimo} e {maximo}. Não invente "
@@ -219,6 +224,7 @@ def _buscar_dupla_artigos(
     pool_rerank = max(top_n + 5, 15)
     candidatos_por_lote = pool_rerank
     p = usar_provedor(provedor)
+    checar_orcamento("busca")
     checar_cancelamento()
     print(f"[RAG] Busca inicial: {search_title_en}")
 
@@ -234,6 +240,7 @@ def _buscar_dupla_artigos(
     consultas += consultas_pdf
 
     try:
+        avancar("embedding", "Gerando o embedding da consulta…")
         embeddings = gerar_embedding_lote(consultas)
         itens = list(zip(consultas, embeddings))
     except RequisicaoCancelada:
@@ -265,6 +272,7 @@ def _buscar_dupla_artigos(
             return []
 
     if itens:
+        avancar("vetorial", "Consultando a base vetorial de artigos…")
         with ThreadPoolExecutor(max_workers=min(4, len(itens))) as executor:
             resultados = list(executor.map(executar_busca, itens))
     else:
@@ -277,9 +285,16 @@ def _buscar_dupla_artigos(
         ",".join(f"{a.get('id')}({a.get('similaridade')})" for a in pool),
     )
     print(f"[RAG] Pool para rerank: {len(pool)} artigos")
+    checar_orcamento("rerank")
     checar_cancelamento()
+    avancar("rerank", "Reordenando os artigos por aderência…")
+    pergunta_rerank = (
+        f"{search_title_en}; {texto_original_usuario}"
+        if search_title_en
+        else texto_original_usuario
+    )
     artigos_final = rerank_por_aderencia(
-        texto_original_usuario, pool, top_n, provedor=p
+        pergunta_rerank, pool, top_n, provedor=p
     )
     print(
         "[RAG] Medição Top-K Final:",
@@ -378,6 +393,52 @@ def _substituir_ancoras_por_titulo(resposta: str, artigos: list[dict]) -> str:
     return padrao.sub(substituto, resposta)
 
 
+def _intencao_busca(mensagem: str) -> bool:
+    """Detecta pedido explícito de busca de artigos no texto do usuário."""
+    alvos = (
+        "busque",
+        "busca",
+        "procure",
+        "procurar",
+        "pesquise",
+        "pesquisar",
+        "encontre",
+        "encontrar",
+        "recomende",
+        "recomendar",
+        "traga",
+        "trazer",
+        "mesmo tema",
+        "mesma area",
+        "relacionad",
+        "semelhante",
+    )
+    texto = (mensagem or "").lower()
+    return any(alvo in texto for alvo in alvos)
+
+
+def _gerar_search_title_en(
+    mensagem: str, provedor: LLMProvider | None = None
+) -> str:
+    """Gera o título acadêmico em inglês equivalente ao pedido do usuário."""
+    p = usar_provedor(provedor)
+    checar_orcamento("analise")
+    resposta = p.chat_simple(
+        messages=[
+            {
+                "role": "system",
+                "content": (
+                    "Escreva apenas o título acadêmico em inglês equivalente ao "
+                    "pedido do usuário, sem aspas nem pontuação final."
+                ),
+            },
+            {"role": "user", "content": mensagem},
+        ],
+        temperature=0,
+    )
+    return (resposta or "").strip()
+
+
 def _resposta_direta(
     mensagem: str,
     provedor: LLMProvider | None = None,
@@ -388,7 +449,9 @@ def _resposta_direta(
 ) -> dict:
     """Resposta conceitual geral: sem busca no banco."""
     p = usar_provedor(provedor)
+    checar_orcamento("resposta")
     checar_cancelamento()
+    avancar("resposta", "Escrevendo a resposta…")
     messages = [{"role": "system", "content": _system_prompt()}]
     messages.extend(_mensagem_pdf_catalogo(pdf_catalogo))
     messages.extend(_mensagens_pdf_contexto(pdf_secoes))
@@ -414,7 +477,9 @@ def processar_mensagem_usuario(
 ) -> dict:
     p = usar_provedor(provedor)
     pdf_secoes = pdf_secoes or []
+    checar_orcamento("analise")
     checar_cancelamento()
+    avancar("analise", "Analisando sua pergunta…")
     print(f"[RAG] Iniciando processamento da mensagem: {mensagem[:120]}...")
 
     def pesquisar_base_artigos(
@@ -459,38 +524,42 @@ def processar_mensagem_usuario(
         messages.extend(historico)
     messages.append({"role": "user", "content": mensagem})
 
-    print("[RAG] Enviando mensagem ao modelo para decidir tool-call...")
-    resposta = p.chat(messages=messages, tools=[pesquisar_base_artigos])
-    func_name, args = _extrair_chamada_ferramenta(resposta)
-    print(f"[RAG] Tool call detectada: func_name={func_name}, args={args}")
+    def executar_busca_e_responder(tool_args: dict) -> dict:
+        tool_args["ano_inicio"] = (
+            ano_inicio if ano_inicio else tool_args.get("ano_inicio") or 0
+        )
+        tool_args["ano_fim"] = ano_fim if ano_fim else tool_args.get("ano_fim") or 0
+        tool_args["area"] = area.strip() if area.strip() else tool_args.get("area") or ""
+        _normalizar_anos_tool_call(tool_args)
 
-    if func_name == "pesquisar_base_artigos" and args:
-        # Filtros escolhidos na barra lateral têm precedência sobre o que o
-        # modelo sugerir no tool call; somente avançam se estiverem definidos.
-        args["ano_inicio"] = ano_inicio if ano_inicio else args.get("ano_inicio") or 0
-        args["ano_fim"] = ano_fim if ano_fim else args.get("ano_fim") or 0
-        args["area"] = area.strip() if area.strip() else args.get("area") or ""
-        _normalizar_anos_tool_call(args)
-
-        query_ingles_gerada = args.get("search_title_en", "")
-        print(f"[RAG] Query em inglês recebida: {query_ingles_gerada}")
-        artigos_encontrados = pesquisar_base_artigos(**args)
+        query_ingles_gerada = tool_args.get("search_title_en", "")
+        print(f"[RAG] Query em inglês: {query_ingles_gerada}")
+        avancar("busca", "Montando a consulta e buscando artigos na base…")
+        artigos_encontrados = pesquisar_base_artigos(**tool_args)
 
         messages.extend(
             [
                 {
                     "role": "assistant",
-                    "content": f"Chamei a ferramenta pesquisar_base_artigos com: {json.dumps(args)}",
+                    "content": (
+                        "Chamei a ferramenta pesquisar_base_artigos com: "
+                        + json.dumps(tool_args)
+                    ),
                 },
                 {
                     "role": "tool",
-                    "tool_name": func_name,
+                    "tool_name": "pesquisar_base_artigos",
                     "content": json.dumps(artigos_encontrados, ensure_ascii=False),
                 },
             ]
         )
 
         print("[RAG] Gerando resposta final com os artigos retornados...")
+        avancar(
+            "resposta",
+            f"Redigindo a resposta com base em {len(artigos_encontrados)} artigos…",
+        )
+        checar_orcamento("resposta")
         resposta_final = p.chat_simple(messages=messages)
         resposta_final = _substituir_ancoras_por_titulo(
             resposta_final, artigos_encontrados
@@ -504,6 +573,26 @@ def processar_mensagem_usuario(
             "total_artigos_mesclados": len(artigos_encontrados),
             "artigos": artigos_encontrados,
         }
+
+    print("[RAG] Enviando mensagem ao modelo para decidir tool-call...")
+    checar_orcamento("analise")
+    resposta = p.chat(messages=messages, tools=[pesquisar_base_artigos])
+    func_name, args = _extrair_chamada_ferramenta(resposta)
+    print(f"[RAG] Tool call detectada: func_name={func_name}, args={args}")
+
+    if func_name == "pesquisar_base_artigos" and args:
+        return executar_busca_e_responder(args)
+
+    forcar_busca = requisicao == "busca" or (
+        bool(pdf_secoes) and _intencao_busca(mensagem)
+    )
+    if forcar_busca:
+        print("[RAG] Intenção de busca; forçando a pesquisa na base.")
+        args = {
+            "search_title_en": _gerar_search_title_en(mensagem, provedor=p),
+            "top_n": 5,
+        }
+        return executar_busca_e_responder(args)
 
     print("[RAG] Nenhuma ferramenta foi chamada; devolvendo resposta direta do modelo.")
     return {

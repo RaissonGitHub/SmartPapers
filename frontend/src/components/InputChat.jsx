@@ -33,7 +33,7 @@ const MODOS_REQUISICAO = {
   busca: {
     icone: SearchIcon,
     rotulo: "Buscar artigos",
-    descricao: "FIrá buscar artigos recomendados",
+    descricao: "Fará buscar artigos recomendados",
     requisicao: "busca",
   },
   pergunta: {
@@ -90,7 +90,8 @@ export default function InputChat({
 
   const provedorAtivo = ollamaHabilitado === true ? provedor : "gemini";
 
-  const ModeloIcone = provedorAtivo === "ollama" ? SmartToyIcon : ModelTrainingIcon;
+  const ModeloIcone =
+    provedorAtivo === "ollama" ? SmartToyIcon : ModelTrainingIcon;
   const rotuloModelo =
     provedorAtivo === "ollama"
       ? "Ollama"
@@ -311,6 +312,7 @@ export default function InputChat({
             open={Boolean(anchorElModelo)}
             anchorEl={anchorElModelo}
             onClose={() => setAnchorElModelo(null)}
+            keepMounted
             anchorOrigin={{ vertical: "top", horizontal: "left" }}
             transformOrigin={{ vertical: "bottom", horizontal: "left" }}
             slotProps={{
@@ -343,6 +345,7 @@ export default function InputChat({
             open={Boolean(anchorElFuncoes)}
             anchorEl={anchorElFuncoes}
             onClose={() => setAnchorElFuncoes(null)}
+            keepMounted
             anchorOrigin={{ vertical: "top", horizontal: "right" }}
             transformOrigin={{ vertical: "bottom", horizontal: "right" }}
             slotProps={{

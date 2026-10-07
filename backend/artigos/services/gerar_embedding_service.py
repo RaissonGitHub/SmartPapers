@@ -2,9 +2,9 @@ import threading
 
 import torch
 from adapters import AutoAdapterModel, Stack
-from transformers import AutoTokenizer
-
 from chat.services.cancelamento import checar_cancelamento
+from chat.services.orcamento import checar_orcamento
+from transformers import AutoTokenizer
 
 _modelo = None
 _tokenizer = None
@@ -55,6 +55,7 @@ def gerar_embedding_lote(textos: list[str]) -> list[list[float]]:
     if not textos:
         return []
     checar_cancelamento()
+    checar_orcamento("embedding")
     _carregar()
     inputs = _tokenizer(
         textos,
@@ -73,6 +74,8 @@ def gerar_embedding_lote(textos: list[str]) -> list[list[float]]:
 def gerar_embedding(titulo: str, resumo: str | None = None) -> list[float]:
 
     _carregar()
+    checar_cancelamento()
+    checar_orcamento("embedding")
 
     texto = _texto_embedding(titulo, resumo)
 

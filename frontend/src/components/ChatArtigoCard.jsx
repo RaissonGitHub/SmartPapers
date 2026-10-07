@@ -7,8 +7,12 @@ export default function ChatArtigoCard({ artigo }) {
 
   const autoresTodos =
     autoresCompletos(artigo.autores) || "Autores não informados";
-  const autoresResumo = autoresResumidos(artigo.autores) || "Autores não informados";
-  const base = [artigo.ano_publicacao || "S/D", artigo.area_conhecimento || artigo.area]
+  const autoresResumo =
+    autoresResumidos(artigo.autores) || "Autores não informados";
+  const base = [
+    artigo.ano_publicacao || "S/D",
+    artigo.area_conhecimento || artigo.area,
+  ]
     .filter(Boolean)
     .join(" · ");
   const meta = [autoresResumo, base].filter(Boolean).join(" · ");

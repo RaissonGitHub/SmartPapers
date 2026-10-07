@@ -30,10 +30,12 @@ class AgentChatRequestSerializer(serializers.Serializer):
         allow_blank=True,
         help_text="Força a intenção: 'busca', 'resposta' ou ausente (modelo decide).",
     )
-    sessao_id = serializers.UUIDField(
+    sessao_id = serializers.CharField(
         required=False,
+        allow_blank=True,
         allow_null=True,
-        help_text="UUID da sessão existente. Ausente = cria nova sessão.",
+        max_length=100,
+        help_text="Identificador da sessão existente. Ausente = cria nova sessão.",
     )
     ano_inicio = serializers.IntegerField(
         required=False,

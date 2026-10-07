@@ -41,7 +41,7 @@ const LINK_AI_STUDIO = "https://aistudio.google.com/api-keys";
 
 const TOUR = [
   {
-icone: MenuBookIcon,
+    icone: MenuBookIcon,
     titulo: "Bem-vindo ao SmartPapers",
     texto:
       "O SmartPapers é um assistente de pesquisa que conecta o seu texto a artigos científicos. Anexe um PDF ou descreva seu tema e receba recomendações baseadas em publicações reais.",
