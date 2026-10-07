@@ -35,7 +35,6 @@ SmartPapers é um assistente para pesquisa acadêmica que combina busca por arti
 ### Infraestrutura
 - Docker + Docker Compose
 - Nginx (proxy reverso + SPA)
-- Cloudflare Tunnel (produção)
 
 ## Estrutura do projeto
 
@@ -118,11 +117,8 @@ GEMINI_API_KEY=sua-chave-gemini
 GEMINI_MODEL=gemini-2.5-flash
 
 # Coleta (OpenAlex)
-EMAIL_COLETA=seu-email@exemplo.com
-EMBED_BATCH=32
+OPENALEX_API_KEY=sua-chave-openalex
 
-# Tunnel (produção - Cloudflare)
-TUNNEL_TOKEN=seu-token-cloudflared
 ```
 
 ### 2. Frontend (.env)
@@ -183,26 +179,49 @@ docker compose -p smartpapers_prod -f docker-compose.prod.yml up -d --build fron
 
 ## Coleta de artigos (OpenAlex)
 
-A coleta baixa artigos do OpenAlex, gera embeddings com Gemini e salva os dados no banco (PostgreSQL + pgvector).
+A coleta baixa artigos do OpenAlex, gera embeddings com SPECTER2 e salva os dados no banco (PostgreSQL + pgvector). É necessário configurar `OPENALEX_API_KEY` no ambiente do backend. Chaves gratuitas podem ser obtidas em [OpenAlex](https://openalex.org/settings/api).
 
 Executar em desenvolvimento:
 
 ```bash
-docker compose exec backend python coleta/coletar_openalex.py
+docker compose exec backend python manage.py coletar_openalex
 ```
 
 Executar em produção:
 
 ```bash
-docker compose -p smartpapers_prod -f docker-compose.prod.yml exec backend python coleta/coletar_openalex.py
+docker compose -p smartpapers_prod -f docker-compose.prod.yml exec backend python manage.py coletar_openalex
+```
+
+Opções disponíveis:
+
+```text
+--total TOTAL                  Total alvo de artigos no banco (padrão: 50000)
+--query QUERY                  Termo de busca no OpenAlex
+--ano-inicio ANO               Ano mínimo de publicação (padrão: 2015)
+--ano-fim ANO                  Ano máximo de publicação (padrão: 2026)
+--apenas-embeddings            Gera embeddings somente dos artigos pendentes
+```
+
+Exemplos:
+
+```bash
+# Coletar 5.000 artigos sobre inteligência artificial
+docker compose exec backend python manage.py coletar_openalex --query "artificial intelligence" --total 5000
+
+# Coletar artigos publicados entre 2020 e 2026
+docker compose exec backend python manage.py coletar_openalex --ano-inicio 2020 --ano-fim 2026
+
+# Gerar embeddings dos artigos que ainda não possuem vetor
+docker compose exec backend python manage.py coletar_openalex --apenas-embeddings
 ```
 
 **Notas importantes sobre a coleta:**
-- Usa `python -u` (unbuffered) para acompanhar o progresso em tempo real.
-- `EMBED_BATCH=32` (configuração otimizada para CPU).
-- Processa apenas artigos com `embedding is None` (reprocessamento incremental).
-- Conta apenas novos artigos no progresso (não reconta os já existentes).
-- Cada ambiente (desenvolvimento e produção) mantém seus próprios 10.000 artigos isolados.
+- O filtro fixo exige artigos (`type:article`) com resumo (`has_abstract:true`) dentro do intervalo de publicação informado.
+- O `--total` representa a quantidade alvo total de artigos no banco, não a quantidade de artigos desta execução.
+- O processo é incremental: não refaz embeddings já concluídos e conta apenas artigos novos no progresso.
+- O tamanho do lote de embeddings é `32` e o tamanho máximo da página do OpenAlex é `100`.
+- Para consultar todas as opções diretamente: `docker compose exec backend python manage.py coletar_openalex --help`.
 
 ## Backups e restore
 
@@ -236,14 +255,6 @@ docker run --rm -v "C:\Users\lixeiro\Documents\SmartPapers:/app" -w /app node:22
 
 Typecheck: verificar os comandos em `package.json` e `pyproject.toml` conforme o ambiente.
 
-## Convenções
-
-- **Nunca commitar segredos** (tokens, chaves, `.env`). Tokens sensíveis (por exemplo, Cloudflare Tunnel) ficam em caminhos do sistema com ACL restrita.
-- **Não versionar migrations** — `/migrations/` está no `.gitignore`. As migrations existem localmente e entram na imagem via `COPY`.
-- **Infraestrutura não pertence ao repositório** — tunnel/hospedagem (Cloudflare Tunnel) é infraestrutura, não parte do projeto. Não adicionar serviços de tunnel ao `docker-compose.prod.yml`.
-- **Um único processo de coleta** — evitar coletores paralelos duplicados.
-- **CSS responsivo com `dvh`** — usa `min-height: 100dvh` (dynamic viewport height) para evitar scroll indesejado no mobile (barra de URL).
-- **Assets com hash** — o Nginx permite cache longo para assets com hash e força `Cache-Control: no-cache` no HTML (`/` e `/index.html`) para garantir deploys sem hard refresh.
 
 ## URLs
 
