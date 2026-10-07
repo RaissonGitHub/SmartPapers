@@ -259,7 +259,3 @@ Typecheck: verificar os comandos em `package.json` e `pyproject.toml` conforme o
 ## Licença
 
 [MIT License](LICENSE)
-
-## Suporte
-
-Reportar problemas: [GitHub Issues](https://github.com/anomalyco/opencode/issues)
