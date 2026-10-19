@@ -20,8 +20,8 @@ SmartPapers é um assistente para pesquisa acadêmica que combina busca por arti
 - PostgreSQL 16 + pgvector (via imagem `pgvector/pgvector:pg16`; pacote `pgvector` 0.5.0)
 - Gunicorn 23.0.0
 - `google-genai` 2.24.0
-- `sentence-transformers` 5.7.0 (embeddings SPECTER2)
-- `scikit-learn` 1.9.0 (reranking/medidas de similaridade)
+- `adapters` 1.3.0 (adapter SPECTER2 para geração de embeddings)
+- `transformers` 4.57.6 + PyTorch 2.14.0 (tokenização e inferência dos embeddings)
 - `pymupdf` 1.28.2 (extração de texto de PDF)
 - `ollama` 0.6.2 (provedor LLM local)
 - `redis` 6.2.0 (cache opcional)
